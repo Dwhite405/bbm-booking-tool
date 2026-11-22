@@ -424,11 +424,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--light);color:var(--black)
     <div class="special-grid" id="specialItemsGrid">
       <label class="special-item"><input type="checkbox" value="piano"> <span>🎹 Piano</span></label>
       <label class="special-item"><input type="checkbox" value="safe"> <span>🔒 Safe / Gun Safe</span></label>
-      <label class="special-item"><input type="checkbox" value="pool"> <span>🎱 Pool Table</span></label>
       <label class="special-item"><input type="checkbox" value="hot_tub"> <span>🛁 Hot Tub</span></label>
       <label class="special-item"><input type="checkbox" value="antiques"> <span>🏺 Antiques</span></label>
       <label class="special-item"><input type="checkbox" value="artwork"> <span>🖼️ Large Artwork</span></label>
-      <label class="special-item"><input type="checkbox" value="motorcycle"> <span>🏍️ Motorcycle</span></label>
       <label class="special-item"><input type="checkbox" value="gym"> <span>🏋️ Gym Equipment</span></label>
     </div>
     </div>
@@ -641,6 +639,10 @@ const S = {
   aptFloor:'', aptBedrooms:'', aptScope:'entire',
   // Storage
   storageUnits:'', storageSize:'',
+  storageService:'',   // 'loading' or 'unloading'
+  storageUnitSize:'',  // '5x10' '10x10' '10x15' '10x20'
+  storageLevels:'',    // 'single' or 'multi'
+  storageAssembly:'',  // 'yes' or 'no'
   // Labor
   laborLoad:'', laborPros:'', laborHours:'',
   laborMode:'',        // 'guided' or 'custom'
@@ -766,7 +768,10 @@ function validate(from, to) {
       if(!S.aptFloor||!S.aptBedrooms) { alert('Please complete all selections.'); return false; }
       if(!S.aptScope) { alert('Please select Entire Apartment or Large/Limited Items.'); return false; }
     } else if(t==='storage') {
-      if(!S.storageUnits||!S.storageSize) { alert('Please complete all selections.'); return false; }
+      if(!S.storageUnits)   { alert('Please select number of units.'); return false; }
+      if(!S.storageUnitSize) { alert('Please select the unit size.'); return false; }
+      if(!S.storageLevels) { alert('Please select single or multi-level.'); return false; }
+      if(!S.storageAssembly) { alert('Please answer the assembly question.'); return false; }
     } else if(t==='labor') {
       if(!S.laborMode) { alert('Please select how you would like your quote.'); return false; }
       if(S.laborMode==='guided') {
@@ -823,7 +828,14 @@ function validate(from, to) {
   el.addEventListener('input', function() {
     this.value = this.value.replace(/\D/g,'').slice(0,5);
     S[id] = this.value;
-    if(this.value.length === 5) document.getElementById(id+'Err').classList.remove('show');
+    if(this.value.length === 5) {
+      document.getElementById(id+'Err').classList.remove('show');
+      // Pre-fetch drive time as soon as both ZIPs are complete
+      if(S.zipFrom && S.zipFrom.length===5 && S.zipTo && S.zipTo.length===5) {
+        S._driveTimeMins = 0; // reset cache
+        fetchDriveTime(S.zipFrom, S.zipTo);
+      }
+    }
   });
 });
 
@@ -906,19 +918,7 @@ function buildS2() {
   } else if(t==='storage') {
     document.getElementById('s2title').textContent = 'Your Storage Unit';
     document.getElementById('s2sub').textContent = 'Tell us about your storage situation';
-    html = `
-      <div class="section-label">Number of Units</div>
-      <div class="card-grid g3" style="margin-bottom:20px">
-        ${['1','2','3'].map(n=>`<div class="opt${S.storageUnits===n?' sel':''}" onclick="pick('storageUnits','${n}',this)">
-          <span class="opt-icon">🗄️</span><div class="opt-label">${n} Unit${n!='1'?'s':''}</div>
-        </div>`).join('')}
-      </div>
-      <div class="section-label">Unit Size</div>
-      <div class="card-grid g4">
-        ${['5x10','10x10','10x15','10x20'].map(s=>`<div class="opt${S.storageSize===s?' sel':''}" onclick="pick('storageSize','${s}',this)">
-          <span class="opt-icon">📐</span><div class="opt-label">${s}</div>
-        </div>`).join('')}
-      </div>`;
+    html = buildStorageHTML();
   } else if(t==='labor') {
     document.getElementById('s2title').textContent = 'Labor Only Service';
     document.getElementById('s2sub').textContent = 'We provide the muscle';
@@ -1049,6 +1049,8 @@ function buildS2() {
       </div>`;
   }
   el.innerHTML = html;
+  // Wire storage clicks after render
+  if(S.serviceType === 'storage') { setTimeout(rewireStorageClicks, 0); }
   // Wire labor clicks after render
   if(S.serviceType === 'labor') {
     setTimeout(function() {
@@ -1143,12 +1145,12 @@ function buildS3() {
 
 // ── MILEAGE ENGINE ──
 // Bigger Better Movers facility: 950 N Council Rd, OKC OK 73127
-// $1.95/mile after first 10 miles (round trip from facility)
+// $2.50/mile after first 10 miles (round trip from facility)
 // We use a ZIP centroid lookup to estimate distance without an API key.
 
 const FACILITY_LAT = 35.4876;
 const FACILITY_LNG = -97.6720;
-const MILEAGE_RATE = 1.95;
+const MILEAGE_RATE = 2.50;
 const FREE_MILES   = 10;
 
 const ZIP_PREFIX_COORDS = {
@@ -1322,7 +1324,10 @@ const ZIP_PREFIX_COORDS = {
   '728':[34.36,-91.72],'729':[35.84,-90.70],'730':[35.47,-97.52],'731':[35.47,-97.52],
   '732':[35.47,-97.52],'733':[35.47,-97.52],'734':[35.47,-97.52],'735':[35.47,-97.52],
   '736':[35.47,-97.52],'737':[35.47,-97.52],'738':[35.47,-97.52],'739':[35.47,-97.52],
-  '740':[36.15,-95.99],'741':[36.15,-95.99],'750':[32.78,-96.80],'751':[32.78,-96.80],
+  '740':[36.15,-95.99],'741':[36.15,-95.99],
+  '742':[36.15,-95.99],'743':[36.47,-94.80],'744':[36.47,-94.80],'745':[36.47,-94.80],
+  '746':[34.74,-96.68],'747':[34.74,-96.68],'748':[34.74,-96.68],'749':[35.29,-94.42],
+  '750':[32.78,-96.80],'751':[32.78,-96.80],
   '752':[32.78,-96.80],'753':[32.78,-96.80],'754':[32.78,-96.80],'755':[33.44,-94.04],
   '756':[32.35,-95.30],'757':[32.35,-95.30],'758':[32.35,-95.30],'759':[31.55,-97.14],
   '760':[32.73,-97.31],'761':[32.73,-97.31],'762':[32.73,-97.31],'763':[33.12,-97.05],
@@ -1380,9 +1385,53 @@ const ZIP_PREFIX_COORDS = {
   '998':[56.00,-160.00],'999':[71.30,-156.79],
 };
 
+// 5-digit ZIP centroids for Oklahoma — checked first for local accuracy
+const ZIP5_COORDS_OK = {
+  '73003':[35.6594,-97.4760],'73007':[35.6594,-97.4094],'73012':[35.6260,-97.5614],
+  '73013':[35.6260,-97.4817],'73020':[35.4594,-97.3366],'73025':[35.6594,-97.4094],
+  '73034':[35.6594,-97.4817],'73049':[35.5262,-97.3366],'73050':[35.6594,-97.3366],
+  '73054':[35.5878,-97.3366],'73064':[35.3928,-97.6730],'73066':[35.5262,-97.3366],
+  '73068':[35.2928,-97.4455],'73069':[35.2616,-97.4455],'73071':[35.2297,-97.4455],
+  '73072':[35.2297,-97.4817],'73075':[34.9928,-97.4455],'73078':[35.5594,-97.7220],
+  '73079':[35.2928,-97.6098],'73084':[35.5262,-97.3730],'73085':[35.5594,-97.4094],
+  '73089':[35.2297,-97.5878],'73090':[35.5262,-97.7220],'73099':[35.5094,-97.7756],
+  '73101':[35.4676,-97.5164],'73102':[35.4733,-97.5176],'73103':[35.4894,-97.5218],
+  '73104':[35.4733,-97.5080],'73105':[35.4985,-97.4985],'73106':[35.4817,-97.5347],
+  '73107':[35.4817,-97.5614],'73108':[35.4594,-97.5614],'73109':[35.4428,-97.5218],
+  '73110':[35.4594,-97.4594],'73111':[35.5094,-97.4817],'73112':[35.5094,-97.5614],
+  '73113':[35.4985,-97.4455],'73114':[35.5428,-97.5218],'73115':[35.4428,-97.4455],
+  '73116':[35.5262,-97.5614],'73117':[35.4817,-97.4817],'73118':[35.5094,-97.5347],
+  '73119':[35.4260,-97.5614],'73120':[35.5594,-97.5614],'73121':[35.5094,-97.4455],
+  '73122':[35.5094,-97.5878],'73127':[35.4894,-97.6454],'73128':[35.4594,-97.6454],
+  '73129':[35.4260,-97.4817],'73130':[35.4428,-97.4260],'73131':[35.5428,-97.4817],
+  '73132':[35.5262,-97.6098],'73134':[35.5878,-97.5614],'73135':[35.4094,-97.4455],
+  '73139':[35.3928,-97.5218],'73141':[35.4985,-97.4094],'73142':[35.5878,-97.6098],
+  '73145':[35.4428,-97.3928],'73149':[35.3928,-97.4817],'73150':[35.4260,-97.3730],
+  '73151':[35.5262,-97.4260],'73159':[35.3928,-97.5614],'73160':[35.3366,-97.4817],
+  '73162':[35.5594,-97.6454],'73165':[35.3366,-97.4455],'73169':[35.3928,-97.6098],
+  '73170':[35.3366,-97.5218],'73173':[35.3366,-97.5878],
+  '74008':[35.9594,-95.8928],'74011':[36.0594,-95.8260],'74012':[36.0594,-95.8260],
+  '74013':[36.0594,-95.7928],'74014':[36.0260,-95.7260],'74015':[36.0928,-95.7596],
+  '74017':[36.3094,-95.6260],'74021':[36.3428,-95.9260],'74033':[35.9928,-95.9260],
+  '74037':[35.9928,-95.8928],'74055':[36.2924,-95.8928],'74063':[36.1366,-96.1594],
+  '74066':[35.9928,-96.1260],'74070':[36.3094,-96.0594],'74073':[36.2924,-95.7596],
+  '74074':[36.1366,-97.0594],'74075':[36.1366,-97.0594],
+  '74101':[36.1540,-95.9928],'74103':[36.1540,-95.9928],'74104':[36.1366,-95.9594],
+  '74105':[36.1094,-95.9594],'74106':[36.1878,-95.9928],'74107':[36.0928,-96.0260],
+  '74108':[36.1366,-95.8928],'74110':[36.1878,-95.9594],'74112':[36.1366,-95.9260],
+  '74114':[36.1094,-95.9260],'74115':[36.1878,-95.9260],'74116':[36.2094,-95.8928],
+  '74117':[36.2094,-95.9594],'74119':[36.1366,-95.9928],'74120':[36.1540,-96.0260],
+  '74126':[36.2260,-95.9928],'74127':[36.1878,-96.0594],'74128':[36.1094,-95.8928],
+  '74129':[36.1094,-95.8594],'74130':[36.2260,-95.9260],'74131':[36.0594,-96.0260],
+  '74132':[36.0594,-95.9928],'74133':[36.0594,-95.8928],'74134':[36.1094,-95.8260],
+  '74135':[36.0928,-95.9260],'74136':[36.0594,-95.9260],'74137':[36.0260,-95.9260],
+  '74145':[36.0928,-95.8928],'74146':[36.0928,-95.8260],
+};
+
 function zipToCoords(zip) {
   if(!zip || zip.length !== 5) return null;
-  return ZIP_PREFIX_COORDS[zip.slice(0,3)] || null;
+  // Check 5-digit OK table first for local accuracy; fall back to 3-digit prefix for out-of-state
+  return ZIP5_COORDS_OK[zip] || ZIP_PREFIX_COORDS[zip.slice(0,3)] || null;
 }
 
 function haversineDistance(lat1, lng1, lat2, lng2) {
@@ -1394,7 +1443,7 @@ function haversineDistance(lat1, lng1, lat2, lng2) {
 }
 
 const LODGING_RATE  = 195;
-const HOLDING_RATE  = 250;
+const HOLDING_RATE  = 325;
 const LODGING_HRS   = 8;
 const AVG_SPEED_MPH = 60;
 
@@ -1470,7 +1519,7 @@ function calcMileageFee(zipFrom, zipTo) {
     ? `${routeDesc} = ${totalRounded} mi total — first ${FREE_MILES} mi free, ${Math.round(billable*10)/10} billable mi × $${MILEAGE_RATE}/mi`
     : `${routeDesc} = ${totalRounded} mi total — within free ${FREE_MILES}-mile zone, no mileage charge`;
 
-  return {fee, miles: totalRounded, billableMiles: Math.round(billable*10)/10, note};
+  return {fee, miles: totalRounded, billableMiles: Math.round(billable*10)/10, note, leg2: (coordsFrom && coordsTo) ? Math.round(haversineDistance(coordsFrom[0], coordsFrom[1], coordsTo[0], coordsTo[1]) * 10) / 10 : 0};
 }
 
 // ── PRICING ENGINE ──
@@ -1484,7 +1533,7 @@ function getQuote() {
   } else if(t==='apartment') {
     return getAptQuote(S.aptFloor, S.aptBedrooms, p, S.aptScope);
   } else if(t==='storage') {
-    return getStorageQuote(S.storageUnits, S.storageSize);
+    return getStorageQuote(S.storageUnits, S.storageUnitSize || S.storageSize);
   } else if(t==='labor') {
     if(S.laborMode==='guided') return getGuidedLaborQuote();
     return getLaborQuote(S.laborPros, S.laborHours);
@@ -1553,129 +1602,129 @@ function normSize(s) {
 
 function houseData() {
   // Key: {size}_{levels}_{scope}_{packing}_{overnight}
-  // Rates: 2pro 1st=$250/$139hr, 3pro=$300/$189hr, 4pro=$350/$249hr, 5pro=$425/$300hr
-  // 6pro=$525/$365hr, 7pro=$600/$430hr, 8pro=$685/$495hr, 9pro=$750/$550hr
-  // 2nd truck=$185, overnight=$250, prorated 15-min increments after 1st hour
+  // Rates: 2pro 1st=$285/$159hr, 3pro=$375/$209hr, 4pro=$450/$279hr, 5pro=$525/$359hr
+  // 6pro=$600/$419hr, 7pro=$625/$450hr, 8pro=$725/$525hr, 9pro=$825/$595hr
+  // 2nd truck=$325, overnight=$325, prorated 15-min increments after 1st hour
   return {
     // ── 800–1,200 sqft ──
-    '800_single_entire_pack_nov':   {total:2034,    days:2, detail:"Day 1: 3.5 hrs packing (3 Pros) • Day 2: 4.5 hrs moving (3 Pros + 26' truck)",          breakdown:"Day 1 – $772.50 Labor, $300 Material\nDay 2 – $961.50 Labor"},
-    '800_single_entire_nopack_nov': {total:961.50,   days:1, detail:"4.5 hrs with 3 Pros + 26' box truck",                                                    breakdown:"$961.50 Labor & Truck"},
-    '800_single_entire_pack_ov':    {total:2206,     days:3, detail:"Day 1: 3.5 hrs packing (3 Pros) • Day 2: 2 hrs loading + overnight hold • Day 3: 1.5 hrs unloading", breakdown:"Day 1 – $772.50 Labor, $300 Material\nDay 2 – $489.00 Labor, $250 Overnight Hold\nDay 3 – $394.50 Labor"},
-    '800_single_entire_nopack_ov':  {total:1133.5,   days:3, detail:"Day 1: 2 hrs loading (3 Pros) • overnight hold • Day 3: 1.5 hrs unloading",                  breakdown:"Day 1 – $489.00 Labor\nDay 2 – $250.00 Overnight Hold\nDay 3 – $394.50 Labor"},
-    '800_single_limited_pack_nov':  {total:1411.5,   days:2, detail:"Day 1: 2 hrs packing (3 Pros) • Day 2: 3.5 hrs moving (3 Pros)",                          breakdown:"Day 1 – $489.00 Labor, $150 Material\nDay 2 – $772.50 Labor"},
-    '800_single_limited_nopack_nov':{total:562.75,  days:1, detail:"3.25 hrs with 2 Pros + 26' box truck",                                                    breakdown:"$562.75 Labor & Truck"},
-    '800_single_limited_pack_ov':   {total:1819.75,  days:3, detail:"Day 1: 2 hrs packing • Day 2: 2 hrs loading • Day 3: 1.75 hrs unloading",                 breakdown:"Day 1 – $489.00 Labor, $150 Material\nDay 2 – $489.00 Labor, $250 Overnight\nDay 3 – $441.75 Labor"},
-    '800_single_limited_nopack_ov': {total:1180.75,  days:2, detail:"Day 1: 2 hrs loading (3 Pros) • Day 2: 1.75 hrs unloading",                               breakdown:"Day 1 – $489.00 Labor, $250 Overnight\nDay 2 – $441.75 Labor"},
-    '800_multi_entire_pack_nov':    {total:2128.5,   days:2, detail:"Day 1: 3.75 hrs packing (3 Pros) • Day 2: 4.75 hrs moving (3 Pros)",                      breakdown:"Day 1 – $819.75 Labor, $300 Material\nDay 2 – $1,008.75 Labor"},
-    '800_multi_entire_nopack_nov':  {total:1056,     days:1, detail:"5 hrs with 3 Pros + 26' box truck",                                                      breakdown:"$1,056.00 Labor"},
-    '800_multi_entire_pack_ov':     {total:2253.25,  days:3, detail:"Day 1: 3.75 hrs packing (3 Pros) • Day 2: 2 hrs loading + overnight hold • Day 3: 1.5 hrs unloading", breakdown:"Day 1 – $819.75 Labor, $300 Material\nDay 2 – $489.00 Labor, $250 Overnight Hold\nDay 3 – $394.50 Labor"},
-    '800_multi_entire_nopack_ov':   {total:1133.5,   days:3, detail:"Day 1: 2 hrs loading (3 Pros) • overnight hold • Day 3: 1.5 hrs unloading",                  breakdown:"Day 1 – $489.00 Labor\nDay 2 – $250.00 Overnight Hold\nDay 3 – $394.50 Labor"},
-    '800_multi_limited_pack_nov':   {total:1411.5,   days:2, detail:"Day 1: 2 hrs packing • Day 2: 3.5 hrs moving",                                             breakdown:"Day 1 – $489.00 Labor, $150 Material\nDay 2 – $772.50 Labor"},
-    '800_multi_limited_nopack_nov': {total:632.25,  days:1, detail:"3.75 hrs with 2 Pros + 26' box truck",                                                    breakdown:"$632.25 Labor"},
-    '800_multi_limited_pack_ov':    {total:1819.75,  days:3, detail:"Day 1: 2 hrs packing • Day 2: 2 hrs loading • Day 3: 1.75 hrs unloading",                 breakdown:"Day 1 – $489.00 Labor, $150 Material\nDay 2 – $489.00 Labor, $250 Overnight\nDay 3 – $441.75 Labor"},
-    '800_multi_limited_nopack_ov':  {total:1228,     days:2, detail:"Day 1: 2 hrs loading (3 Pros) • Day 2: 2 hrs unloading",                                  breakdown:"Day 1 – $489.00 Labor, $250 Overnight\nDay 2 – $489.00 Labor"},
+    '800_single_entire_pack_nov':   {total:2304,    days:2, detail:"Day 1: 3.5 hrs packing (3 Pros) • Day 2: 4.5 hrs moving (3 Pros + 26' truck)",          breakdown:"Day 1 – $897.50 Labor, $300 Material\nDay 2 – $1,106.50 Labor"},
+    '800_single_entire_nopack_nov': {total:1106.50,   days:1, detail:"4.5 hrs with 3 Pros + 26' box truck",                                                    breakdown:"$1,106.50 Labor"},
+    '800_single_entire_pack_ov':    {total:2586,     days:3, detail:"Day 1: 3.5 hrs packing (3 Pros) • Day 2: 2 hrs loading + overnight hold • Day 3: 1.5 hrs unloading", breakdown:"Day 1 – $897.50 Labor, $300 Material\nDay 2 – $584 Labor, $325 Overnight Hold\nDay 3 – $479.50 Labor"},
+    '800_single_entire_nopack_ov':  {total:1388.50,   days:3, detail:"Day 1: 2 hrs loading (3 Pros) • overnight hold • Day 3: 1.5 hrs unloading",                  breakdown:"Day 1 – $584 Labor\nDay 2 – $325 Overnight Hold\nDay 3 – $479.50 Labor"},
+    '800_single_limited_pack_nov':  {total:1631.50,   days:2, detail:"Day 1: 2 hrs packing (3 Pros) • Day 2: 3.5 hrs moving (3 Pros)",                          breakdown:"Day 1 – $584 Labor, $150 Material\nDay 2 – $897.50 Labor"},
+    '800_single_limited_nopack_nov':{total:642.75,  days:1, detail:"3.25 hrs with 2 Pros + 26' box truck",                                                    breakdown:"$642.75 Labor"},
+    '800_single_limited_pack_ov':   {total:2174.75,  days:3, detail:"Day 1: 2 hrs packing • Day 2: 2 hrs loading • Day 3: 1.75 hrs unloading",                 breakdown:"Day 1 – $584 Labor, $150 Material\nDay 2 – $584 Labor, $325 Overnight Hold\nDay 3 – $531.75 Labor"},
+    '800_single_limited_nopack_ov': {total:1440.75,  days:2, detail:"Day 1: 2 hrs loading (3 Pros) • Day 2: 1.75 hrs unloading",                               breakdown:"Day 1 – $584 Labor\nDay 2 – $325 Overnight Hold\nDay 3 – $531.75 Labor"},
+    '800_multi_entire_pack_nov':    {total:2408.50,   days:2, detail:"Day 1: 3.75 hrs packing (3 Pros) • Day 2: 4.75 hrs moving (3 Pros)",                      breakdown:"Day 1 – $949.75 Labor, $300 Material\nDay 2 – $1,158.75 Labor"},
+    '800_multi_entire_nopack_nov':  {total:1211,     days:1, detail:"5 hrs with 3 Pros + 26' box truck",                                                      breakdown:"$1,211 Labor"},
+    '800_multi_entire_pack_ov':     {total:2638.25,  days:3, detail:"Day 1: 3.75 hrs packing (3 Pros) • Day 2: 2 hrs loading + overnight hold • Day 3: 1.5 hrs unloading", breakdown:"Day 1 – $949.75 Labor, $300 Material\nDay 2 – $584 Labor, $325 Overnight Hold\nDay 3 – $479.50 Labor"},
+    '800_multi_entire_nopack_ov':   {total:1388.50,   days:3, detail:"Day 1: 2 hrs loading (3 Pros) • overnight hold • Day 3: 1.5 hrs unloading",                  breakdown:"Day 1 – $584 Labor\nDay 2 – $325 Overnight Hold\nDay 3 – $479.50 Labor"},
+    '800_multi_limited_pack_nov':   {total:1631.50,   days:2, detail:"Day 1: 2 hrs packing • Day 2: 3.5 hrs moving",                                             breakdown:"Day 1 – $584 Labor, $150 Material\nDay 2 – $897.50 Labor"},
+    '800_multi_limited_nopack_nov': {total:722.25,  days:1, detail:"3.75 hrs with 2 Pros + 26' box truck",                                                    breakdown:"$722.25 Labor"},
+    '800_multi_limited_pack_ov':    {total:2174.75,  days:3, detail:"Day 1: 2 hrs packing • Day 2: 2 hrs loading • Day 3: 1.75 hrs unloading",                 breakdown:"Day 1 – $584 Labor, $150 Material\nDay 2 – $584 Labor, $325 Overnight Hold\nDay 3 – $531.75 Labor"},
+    '800_multi_limited_nopack_ov':  {total:1493,     days:2, detail:"Day 1: 2 hrs loading (3 Pros) • Day 2: 2 hrs unloading",                                  breakdown:"Day 1 – $584 Labor\nDay 2 – $325 Overnight Hold\nDay 3 – $584 Labor"},
     // ── 1,201–1,700 sqft ──
-    '1201_single_entire_pack_nov':  {total:2606.5,   days:2, detail:"Day 1: 4.5 hrs packing (3 Pros) • Day 2: 6 hrs moving (3 Pros)",                          breakdown:"Day 1 – $961.50 Labor, $400 Material\nDay 2 – $1,245.00 Labor"},
-    '1201_single_entire_nopack_nov':{total:1245,     days:1, detail:"6 hrs with 3 Pros + 26' truck",                                                           breakdown:"$1,245.00 Labor & Truck"},
-    '1201_single_entire_pack_ov':   {total:2684,     days:3, detail:"Day 1: 4.5 hrs packing (3 Pros) • Day 2: 2.5 hrs loading + overnight hold • Day 3: 2 hrs unloading", breakdown:"Day 1 – $961.50 Labor, $400 Material\nDay 2 – $583.50 Labor, $250 Overnight Hold\nDay 3 – $489.00 Labor"},
-    '1201_single_entire_nopack_ov': {total:1322.5,   days:3, detail:"Day 1: 2.5 hrs loading (3 Pros) + overnight hold • Day 3: 2 hrs unloading",                breakdown:"Day 1 – $583.50 Labor\nDay 2 – $250.00 Overnight Hold\nDay 3 – $489.00 Labor"},
-    '1201_single_limited_pack_nov': {total:1161.5,   days:1, detail:"4.5 hrs with 3 Pros + 26' truck (limited items)",                                         breakdown:"$961.50 Labor, $200 Material"},
-    '1201_single_limited_nopack_nov':{total:867,     days:1, detail:"4 hrs with 3 Pros + 26' truck",                                                           breakdown:"$867.00 Labor & Truck"},
-    '1201_single_limited_pack_ov':  {total:1711.5,   days:2, detail:"Day 1: 3.5 hrs pack & load • Day 2: 2 hrs unloading (3 Pros)",                            breakdown:"Day 1 – $772.50 Labor, $200 Material, $250 Overnight\nDay 2 – $489.00 Labor"},
-    '1201_single_limited_nopack_ov':{total:1417,     days:2, detail:"Day 1: 2.5 hrs loading • Day 2: 2.5 hrs unloading",                                       breakdown:"Day 1 – $583.50 Labor, $250 Overnight\nDay 2 – $583.50 Labor"},
-    '1201_multi_entire_pack_nov':   {total:2795.5,   days:2, detail:"Day 1: 4.75 hrs packing (3 Pros) • Day 2: 6.75 hrs moving (3 Pros)",                      breakdown:"Day 1 – $1,008.75 Labor, $400 Material\nDay 2 – $1,386.75 Labor"},
-    '1201_multi_entire_nopack_nov': {total:1386.75,  days:1, detail:"6.75 hrs with 3 Pros + 26' truck",                                                        breakdown:"$1,386.75 Labor"},
-    '1201_multi_entire_pack_ov':    {total:2731.25,  days:3, detail:"Day 1: 4.75 hrs packing (3 Pros) • Day 2: 2.5 hrs loading + overnight hold • Day 3: 2 hrs unloading", breakdown:"Day 1 – $1,008.75 Labor, $400 Material\nDay 2 – $583.50 Labor, $250 Overnight Hold\nDay 3 – $489.00 Labor"},
-    '1201_multi_entire_nopack_ov':  {total:1322.5,   days:3, detail:"Day 1: 2.5 hrs loading (3 Pros) + overnight hold • Day 3: 2 hrs unloading",                breakdown:"Day 1 – $583.50 Labor\nDay 2 – $250.00 Overnight Hold\nDay 3 – $489.00 Labor"},
-    '1201_multi_limited_pack_nov':  {total:1208.75,  days:1, detail:"4.75 hrs with 3 Pros + 26' truck (limited items)",                                        breakdown:"$1,008.75 Labor, $200 Material"},
-    '1201_multi_limited_nopack_nov':{total:961.5,    days:1, detail:"4.5 hrs with 3 Pros + 26' truck",                                                         breakdown:"$961.50 Labor"},
-    '1201_multi_limited_pack_ov':   {total:1806,     days:2, detail:"Day 1: 3.75 hrs pack & load • Day 2: 2.25 hrs unloading",                                 breakdown:"Day 1 – $819.75 Labor, $200 Material, $250 Overnight\nDay 2 – $536.25 Labor"},
-    '1201_multi_limited_nopack_ov': {total:1322.5,   days:2, detail:"Day 1: 2.5 hrs loading • Day 2: 2 hrs unloading",                                         breakdown:"Day 1 – $583.50 Labor, $250 Overnight\nDay 2 – $489.00 Labor"},
+    '1201_single_entire_pack_nov':  {total:2926.50,   days:2, detail:"Day 1: 4.5 hrs packing (3 Pros) • Day 2: 6 hrs moving (3 Pros)",                          breakdown:"Day 1 – $1,106.50 Labor, $400 Material\nDay 2 – $1,420 Labor"},
+    '1201_single_entire_nopack_nov':{total:1420,     days:1, detail:"6 hrs with 3 Pros + 26' truck",                                                           breakdown:"$1,420 Labor"},
+    '1201_single_entire_pack_ov':   {total:3104,     days:3, detail:"Day 1: 4.5 hrs packing (3 Pros) • Day 2: 2.5 hrs loading + overnight hold • Day 3: 2 hrs unloading", breakdown:"Day 1 – $1,106.50 Labor, $400 Material\nDay 2 – $688.50 Labor, $325 Overnight Hold\nDay 3 – $584 Labor"},
+    '1201_single_entire_nopack_ov': {total:1597.50,   days:3, detail:"Day 1: 2.5 hrs loading (3 Pros) + overnight hold • Day 3: 2 hrs unloading",                breakdown:"Day 1 – $688.50 Labor\nDay 2 – $325 Overnight Hold\nDay 3 – $584 Labor"},
+    '1201_single_limited_pack_nov': {total:1306.50,   days:1, detail:"4.5 hrs with 3 Pros + 26' truck (limited items)",                                         breakdown:"$1,106.50 Labor, $200 Material"},
+    '1201_single_limited_nopack_nov':{total:1002,     days:1, detail:"4 hrs with 3 Pros + 26' truck",                                                           breakdown:"$1,002 Labor"},
+    '1201_single_limited_pack_ov':  {total:2006.50,   days:2, detail:"Day 1: 3.5 hrs pack & load • Day 2: 2 hrs unloading (3 Pros)",                            breakdown:"Day 1 – $897.50 Labor, $200 Material\nDay 2 – $325 Overnight Hold\nDay 3 – $584 Labor"},
+    '1201_single_limited_nopack_ov':{total:1702,     days:2, detail:"Day 1: 2.5 hrs loading • Day 2: 2.5 hrs unloading",                                       breakdown:"Day 1 – $688.50 Labor\nDay 2 – $325 Overnight Hold\nDay 3 – $688.50 Labor"},
+    '1201_multi_entire_pack_nov':   {total:3135.50,   days:2, detail:"Day 1: 4.75 hrs packing (3 Pros) • Day 2: 6.75 hrs moving (3 Pros)",                      breakdown:"Day 1 – $1,158.75 Labor, $400 Material\nDay 2 – $1,576.75 Labor"},
+    '1201_multi_entire_nopack_nov': {total:1576.75,  days:1, detail:"6.75 hrs with 3 Pros + 26' truck",                                                        breakdown:"$1,576.75 Labor"},
+    '1201_multi_entire_pack_ov':    {total:3156.25,  days:3, detail:"Day 1: 4.75 hrs packing (3 Pros) • Day 2: 2.5 hrs loading + overnight hold • Day 3: 2 hrs unloading", breakdown:"Day 1 – $1,158.75 Labor, $400 Material\nDay 2 – $688.50 Labor, $325 Overnight Hold\nDay 3 – $584 Labor"},
+    '1201_multi_entire_nopack_ov':  {total:1597.50,   days:3, detail:"Day 1: 2.5 hrs loading (3 Pros) + overnight hold • Day 3: 2 hrs unloading",                breakdown:"Day 1 – $688.50 Labor\nDay 2 – $325 Overnight Hold\nDay 3 – $584 Labor"},
+    '1201_multi_limited_pack_nov':  {total:1358.75,  days:1, detail:"4.75 hrs with 3 Pros + 26' truck (limited items)",                                        breakdown:"$1,158.75 Labor, $200 Material"},
+    '1201_multi_limited_nopack_nov':{total:1106.50,    days:1, detail:"4.5 hrs with 3 Pros + 26' truck",                                                         breakdown:"$1,106.50 Labor"},
+    '1201_multi_limited_pack_ov':   {total:2111,     days:2, detail:"Day 1: 3.75 hrs pack & load • Day 2: 2.25 hrs unloading",                                 breakdown:"Day 1 – $949.75 Labor, $200 Material\nDay 2 – $325 Overnight Hold\nDay 3 – $636.25 Labor"},
+    '1201_multi_limited_nopack_ov': {total:1597.50,   days:2, detail:"Day 1: 2.5 hrs loading • Day 2: 2 hrs unloading",                                         breakdown:"Day 1 – $688.50 Labor\nDay 2 – $325 Overnight Hold\nDay 3 – $584 Labor"},
     // ── 1,701–2,400 sqft ──
-    '1701_single_entire_pack_nov':  {total:3357.75,  days:2, detail:"Day 1: 5.25 hrs packing (3 Pros) • Day 2: 6.5 hrs moving (4 Pros + 2 trucks)",             breakdown:"Day 1 – $1,103.25 Labor, $350 Material\nDay 2 – $1,719.50 Labor, $185 2nd Truck"},
-    '1701_single_entire_nopack_nov':{total:1904.5,   days:1, detail:"6.5 hrs with 4 Pros + 2 trucks",                                                           breakdown:"$1,719.50 Labor, $185 2nd Truck"},
-    '1701_single_entire_pack_ov':   {total:3210.75,  days:3, detail:"Day 1: 5.25 hrs packing (3 Pros) • Day 2: 2.5 hrs loading (4 Pros, 2 trucks) + overnight hold • Day 3: 2 hrs unloading", breakdown:"Day 1 – $1,103.25 Labor, $350 Material\nDay 2 – $723.50 Labor, $185 2nd Truck, $250 Overnight Hold\nDay 3 – $599.00 Labor"},
-    '1701_single_entire_nopack_ov': {total:1757.5,   days:3, detail:"Day 1: 2.5 hrs loading (4 Pros, 2 trucks) + overnight hold • Day 3: 2 hrs unloading",       breakdown:"Day 1 – $723.50 Labor, $185 2nd Truck\nDay 2 – $250.00 Overnight Hold\nDay 3 – $599.00 Labor"},
-    '1701_single_limited_pack_nov': {total:1303.25,  days:1, detail:"5.25 hrs to pack & move (3 Pros)",                                                          breakdown:"$1,103.25 Labor, $200 Material"},
-    '1701_single_limited_nopack_nov':{total:1008.75, days:1, detail:"4.75 hrs with 3 Pros + 26' truck",                                                         breakdown:"$1,008.75 Labor"},
-    '1701_single_limited_pack_ov':  {total:1664.25,  days:2, detail:"Day 1: 3 hrs pack & load (3 Pros) • Day 2: 2.25 hrs unloading",                            breakdown:"Day 1 – $678.00 Labor, $200 Material, $250 Overnight\nDay 2 – $536.25 Labor"},
-    '1701_single_limited_nopack_ov':{total:1369.75,  days:2, detail:"Day 1: 2.5 hrs loading • Day 2: 2.25 hrs unloading",                                       breakdown:"Day 1 – $583.50 Labor, $250 Overnight\nDay 2 – $536.25 Labor"},
-    '1701_multi_entire_pack_nov':   {total:3529.5,   days:2, detail:"Day 1: 5.5 hrs packing (3 Pros) • Day 2: 7 hrs moving (4 Pros + 2 trucks)",                breakdown:"Day 1 – $1,150.50 Labor, $350 Material\nDay 2 – $1,844.00 Labor, $185 2nd Truck"},
-    '1701_multi_entire_nopack_nov': {total:2029,     days:1, detail:"7 hrs with 4 Pros + 2 trucks",                                                             breakdown:"$1,844.00 Labor, $185 2nd Truck"},
-    '1701_multi_entire_pack_ov':    {total:3258,     days:3, detail:"Day 1: 5.5 hrs packing (3 Pros) • Day 2: 2.5 hrs loading (4 Pros, 2 trucks) + overnight hold • Day 3: 2 hrs unloading", breakdown:"Day 1 – $1,150.50 Labor, $350 Material\nDay 2 – $723.50 Labor, $185 2nd Truck, $250 Overnight Hold\nDay 3 – $599.00 Labor"},
-    '1701_multi_entire_nopack_ov':  {total:1757.5,   days:3, detail:"Day 1: 2.5 hrs loading (4 Pros, 2 trucks) + overnight hold • Day 3: 2 hrs unloading",       breakdown:"Day 1 – $723.50 Labor, $185 2nd Truck\nDay 2 – $250.00 Overnight Hold\nDay 3 – $599.00 Labor"},
-    '1701_multi_limited_pack_nov':  {total:1350.5,   days:1, detail:"5.5 hrs to pack & move (3 Pros + 26' truck)",                                              breakdown:"$1,150.50 Labor, $200 Material"},
-    '1701_multi_limited_nopack_nov':{total:1056,     days:1, detail:"5 hrs with 3 Pros + 26' truck",                                                            breakdown:"$1,056.00 Labor"},
-    '1701_multi_limited_pack_ov':   {total:2083.75,  days:2, detail:"Day 1: 3.5 hrs pack & load (4 Pros) • Day 2: 2.25 hrs unloading",                          breakdown:"Day 1 – $972.50 Labor, $200 Material, $250 Overnight\nDay 2 – $661.25 Labor"},
-    '1701_multi_limited_nopack_ov': {total:1417,     days:2, detail:"Day 1: 2.75 hrs loading • Day 2: 2.25 hrs unloading",                                      breakdown:"Day 1 – $630.75 Labor, $250 Overnight\nDay 2 – $536.25 Labor"},
+    '1701_single_entire_pack_nov':  {total:3922.75,  days:2, detail:"Day 1: 5.25 hrs packing (3 Pros) • Day 2: 6.5 hrs moving (4 Pros + 2 trucks)",             breakdown:"Day 1 – $1,263.25 Labor, $350 Material\nDay 2 – $1,984.50 Labor, $325 2nd Truck"},
+    '1701_single_entire_nopack_nov':{total:2309.50,   days:1, detail:"6.5 hrs with 4 Pros + 2 trucks",                                                           breakdown:"$1,984.50 Labor, $325 2nd Truck"},
+    '1701_single_entire_pack_ov':   {total:3715.75,  days:3, detail:"Day 1: 5.25 hrs packing (3 Pros) • Day 2: 2.5 hrs loading (4 Pros, 2 trucks) + overnight hold • Day 3: 2 hrs unloading", breakdown:"Day 1 – $1,263.25 Labor, $350 Material\nDay 2 – $868.50 Labor, $325 2nd Truck, $325 Overnight Hold\nDay 3 – $584 Labor"},
+    '1701_single_entire_nopack_ov': {total:2102.50,   days:3, detail:"Day 1: 2.5 hrs loading (4 Pros, 2 trucks) + overnight hold • Day 3: 2 hrs unloading",       breakdown:"Day 1 – $868.50 Labor\nDay 2 – $325 2nd Truck, $325 Overnight Hold\nDay 3 – $584 Labor"},
+    '1701_single_limited_pack_nov': {total:1463.25,  days:1, detail:"5.25 hrs to pack & move (3 Pros)",                                                          breakdown:"$1,263.25 Labor, $200 Material"},
+    '1701_single_limited_nopack_nov':{total:1158.75, days:1, detail:"4.75 hrs with 3 Pros + 26' truck",                                                         breakdown:"$1,158.75 Labor"},
+    '1701_single_limited_pack_ov':  {total:1954.25,  days:2, detail:"Day 1: 3 hrs pack & load (3 Pros) • Day 2: 2.25 hrs unloading",                            breakdown:"Day 1 – $793 Labor, $200 Material\nDay 2 – $325 Overnight Hold\nDay 3 – $636.25 Labor"},
+    '1701_single_limited_nopack_ov':{total:1649.75,  days:2, detail:"Day 1: 2.5 hrs loading • Day 2: 2.25 hrs unloading",                                       breakdown:"Day 1 – $688.50 Labor\nDay 2 – $325 Overnight Hold\nDay 3 – $636.25 Labor"},
+    '1701_multi_entire_pack_nov':   {total:4114.50,   days:2, detail:"Day 1: 5.5 hrs packing (3 Pros) • Day 2: 7 hrs moving (4 Pros + 2 trucks)",                breakdown:"Day 1 – $1,315.50 Labor, $350 Material\nDay 2 – $2,124 Labor, $325 2nd Truck"},
+    '1701_multi_entire_nopack_nov': {total:2449,     days:1, detail:"7 hrs with 4 Pros + 2 trucks",                                                             breakdown:"$2,124 Labor, $325 2nd Truck"},
+    '1701_multi_entire_pack_ov':    {total:3768,     days:3, detail:"Day 1: 5.5 hrs packing (3 Pros) • Day 2: 2.5 hrs loading (4 Pros, 2 trucks) + overnight hold • Day 3: 2 hrs unloading", breakdown:"Day 1 – $1,315.50 Labor, $350 Material\nDay 2 – $868.50 Labor, $325 2nd Truck, $325 Overnight Hold\nDay 3 – $584 Labor"},
+    '1701_multi_entire_nopack_ov':  {total:2102.50,   days:3, detail:"Day 1: 2.5 hrs loading (4 Pros, 2 trucks) + overnight hold • Day 3: 2 hrs unloading",       breakdown:"Day 1 – $868.50 Labor\nDay 2 – $325 2nd Truck, $325 Overnight Hold\nDay 3 – $584 Labor"},
+    '1701_multi_limited_pack_nov':  {total:1515.50,   days:1, detail:"5.5 hrs to pack & move (3 Pros + 26' truck)",                                              breakdown:"$1,315.50 Labor, $200 Material"},
+    '1701_multi_limited_nopack_nov':{total:1211,     days:1, detail:"5 hrs with 3 Pros + 26' truck",                                                            breakdown:"$1,211 Labor"},
+    '1701_multi_limited_pack_ov':   {total:2471.25,  days:2, detail:"Day 1: 3.5 hrs pack & load (4 Pros) • Day 2: 2.25 hrs unloading",                          breakdown:"Day 1 – $1,147.50 Labor, $200 Material\nDay 2 – $325 Overnight Hold\nDay 3 – $798.75 Labor"},
+    '1701_multi_limited_nopack_ov': {total:1702,     days:2, detail:"Day 1: 2.75 hrs loading • Day 2: 2.25 hrs unloading",                                      breakdown:"Day 1 – $740.75 Labor\nDay 2 – $325 Overnight Hold\nDay 3 – $636.25 Labor"},
     // ── 2,401–3,000 sqft ──
-    '2401_single_entire_pack_nov':  {total:4055,     days:2, detail:"Day 1: 6 hrs packing (3 Pros) • Day 2: 7 hrs moving (5 Pros + 2 trucks)",                  breakdown:"Day 1 – $1,245.00 Labor, $400 Material\nDay 2 – $2,225.00 Labor, $185 2nd Truck"},
-    '2401_single_entire_nopack_nov':{total:2410,     days:1, detail:"7 hrs with 5 Pros + 2 trucks",                                                             breakdown:"$2,225.00 Labor, $185 2nd Truck"},
-    '2401_single_entire_pack_ov':   {total:3651.5,   days:3, detail:"Day 1: 6 hrs packing (3 Pros) • Day 2: 3 hrs loading (4 Pros, 2 trucks) + overnight hold • Day 3: 2.5 hrs unloading", breakdown:"Day 1 – $1,245.00 Labor, $400 Material\nDay 2 – $848.00 Labor, $185 2nd Truck, $250 Overnight Hold\nDay 3 – $723.50 Labor"},
-    '2401_single_entire_nopack_ov': {total:2006.5,   days:3, detail:"Day 1: 3 hrs loading (4 Pros, 2 trucks) + overnight hold • Day 3: 2.5 hrs unloading",       breakdown:"Day 1 – $848.00 Labor, $185 2nd Truck\nDay 2 – $250.00 Overnight Hold\nDay 3 – $723.50 Labor"},
-    '2401_single_limited_pack_nov': {total:1483.75,  days:1, detail:"4.75 hrs to pack & move (4 Pros + 26' truck)",                                             breakdown:"$1,283.75 Labor, $200 Material"},
-    '2401_single_limited_nopack_nov':{total:1056,    days:1, detail:"5 hrs with 3 Pros + 26' truck",                                                            breakdown:"$1,056.00 Labor"},
-    '2401_single_limited_pack_ov':  {total:1896.5,   days:2, detail:"Day 1: 3.25 hrs pack & load (4 Pros) • Day 2: 2.25 hrs unloading",                         breakdown:"Day 1 – $910.25 Labor, $200 Material, $250 Overnight\nDay 2 – $536.25 Labor"},
-    '2401_single_limited_nopack_ov':{total:1464.25,  days:2, detail:"Day 1: 3 hrs loading • Day 2: 2.25 hrs unloading",                                         breakdown:"Day 1 – $678.00 Labor, $250 Overnight\nDay 2 – $536.25 Labor"},
-    '2401_multi_entire_pack_nov':   {total:4327.25,  days:2, detail:"Day 1: 6.25 hrs packing (3 Pros) • Day 2: 7.75 hrs moving (5 Pros + 2 trucks)",             breakdown:"Day 1 – $1,292.25 Labor, $400 Material\nDay 2 – $2,450.00 Labor, $185 2nd Truck"},
-    '2401_multi_entire_nopack_nov': {total:2560,     days:1, detail:"7.5 hrs with 5 Pros + 2 trucks",                                                           breakdown:"$2,375.00 Labor, $185 2nd Truck"},
-    '2401_multi_entire_pack_ov':    {total:3698.75,  days:3, detail:"Day 1: 6.25 hrs packing (3 Pros) • Day 2: 3 hrs loading (4 Pros, 2 trucks) + overnight hold • Day 3: 2.5 hrs unloading", breakdown:"Day 1 – $1,292.25 Labor, $400 Material\nDay 2 – $848.00 Labor, $185 2nd Truck, $250 Overnight Hold\nDay 3 – $723.50 Labor"},
-    '2401_multi_entire_nopack_ov':  {total:2006.5,   days:3, detail:"Day 1: 3 hrs loading (4 Pros, 2 trucks) + overnight hold • Day 3: 2.5 hrs unloading",       breakdown:"Day 1 – $848.00 Labor, $185 2nd Truck\nDay 2 – $250.00 Overnight Hold\nDay 3 – $723.50 Labor"},
-    '2401_multi_limited_pack_nov':  {total:1546,     days:1, detail:"5 hrs to pack & move (4 Pros + 26' truck)",                                                breakdown:"$1,346.00 Labor, $200 Material"},
-    '2401_multi_limited_nopack_nov':{total:1197.75,  days:1, detail:"5.75 hrs with 3 Pros + 26' truck",                                                         breakdown:"$1,197.75 Labor"},
-    '2401_multi_limited_pack_ov':   {total:2068.25,  days:2, detail:"Day 1: 3.75 hrs pack & load (4 Pros) • Day 2: 2.5 hrs unloading",                          breakdown:"Day 1 – $1,034.75 Labor, $200 Material, $250 Overnight\nDay 2 – $583.50 Labor"},
-    '2401_multi_limited_nopack_ov': {total:1700.5,   days:2, detail:"Day 1: 3.75 hrs loading • Day 2: 2.75 hrs unloading",                                      breakdown:"Day 1 – $819.75 Labor, $250 Overnight\nDay 2 – $630.75 Labor"},
+    '2401_single_entire_pack_nov':  {total:4824,     days:2, detail:"Day 1: 6 hrs packing (3 Pros) • Day 2: 7 hrs moving (5 Pros + 2 trucks)",                  breakdown:"Day 1 – $1,420 Labor, $400 Material\nDay 2 – $2,679 Labor, $325 2nd Truck"},
+    '2401_single_entire_nopack_nov':{total:3004,     days:1, detail:"7 hrs with 5 Pros + 2 trucks",                                                             breakdown:"$2,679 Labor, $325 2nd Truck"},
+    '2401_single_entire_pack_ov':   {total:4166.50,   days:3, detail:"Day 1: 6 hrs packing (3 Pros) • Day 2: 3 hrs loading (4 Pros, 2 trucks) + overnight hold • Day 3: 2.5 hrs unloading", breakdown:"Day 1 – $1,420 Labor, $400 Material\nDay 2 – $1,008 Labor, $325 2nd Truck, $325 Overnight Hold\nDay 3 – $688.50 Labor"},
+    '2401_single_entire_nopack_ov': {total:2346.50,   days:3, detail:"Day 1: 3 hrs loading (4 Pros, 2 trucks) + overnight hold • Day 3: 2.5 hrs unloading",       breakdown:"Day 1 – $1,008 Labor\nDay 2 – $325 2nd Truck, $325 Overnight Hold\nDay 3 – $688.50 Labor"},
+    '2401_single_limited_pack_nov': {total:1696.25,  days:1, detail:"4.75 hrs to pack & move (4 Pros + 26' truck)",                                             breakdown:"$1,496.25 Labor, $200 Material"},
+    '2401_single_limited_nopack_nov':{total:1211,    days:1, detail:"5 hrs with 3 Pros + 26' truck",                                                            breakdown:"$1,211 Labor"},
+    '2401_single_limited_pack_ov':  {total:2239,   days:2, detail:"Day 1: 3.25 hrs pack & load (4 Pros) • Day 2: 2.25 hrs unloading",                         breakdown:"Day 1 – $1,077.75 Labor, $200 Material\nDay 2 – $325 Overnight Hold\nDay 3 – $636.25 Labor"},
+    '2401_single_limited_nopack_ov':{total:1754.25,  days:2, detail:"Day 1: 3 hrs loading • Day 2: 2.25 hrs unloading",                                         breakdown:"Day 1 – $793 Labor\nDay 2 – $325 Overnight Hold\nDay 3 – $636.25 Labor"},
+    '2401_multi_entire_pack_nov':   {total:5145.50,  days:2, detail:"Day 1: 6.25 hrs packing (3 Pros) • Day 2: 7.75 hrs moving (5 Pros + 2 trucks)",             breakdown:"Day 1 – $1,472.25 Labor, $400 Material\nDay 2 – $2,948.25 Labor, $325 2nd Truck"},
+    '2401_multi_entire_nopack_nov': {total:3183.50,     days:1, detail:"7.5 hrs with 5 Pros + 2 trucks",                                                           breakdown:"$2,858.50 Labor, $325 2nd Truck"},
+    '2401_multi_entire_pack_ov':    {total:4218.75,  days:3, detail:"Day 1: 6.25 hrs packing (3 Pros) • Day 2: 3 hrs loading (4 Pros, 2 trucks) + overnight hold • Day 3: 2.5 hrs unloading", breakdown:"Day 1 – $1,472.25 Labor, $400 Material\nDay 2 – $1,008 Labor, $325 2nd Truck, $325 Overnight Hold\nDay 3 – $688.50 Labor"},
+    '2401_multi_entire_nopack_ov':  {total:2346.50,   days:3, detail:"Day 1: 3 hrs loading (4 Pros, 2 trucks) + overnight hold • Day 3: 2.5 hrs unloading",       breakdown:"Day 1 – $1,008 Labor\nDay 2 – $325 2nd Truck, $325 Overnight Hold\nDay 3 – $688.50 Labor"},
+    '2401_multi_limited_pack_nov':  {total:1766,     days:1, detail:"5 hrs to pack & move (4 Pros + 26' truck)",                                                breakdown:"$1,566 Labor, $200 Material"},
+    '2401_multi_limited_nopack_nov':{total:1367.75,  days:1, detail:"5.75 hrs with 3 Pros + 26' truck",                                                         breakdown:"$1,367.75 Labor"},
+    '2401_multi_limited_pack_ov':   {total:2430.75,  days:2, detail:"Day 1: 3.75 hrs pack & load (4 Pros) • Day 2: 2.5 hrs unloading",                          breakdown:"Day 1 – $1,217.25 Labor, $200 Material\nDay 2 – $325 Overnight Hold\nDay 3 – $688.50 Labor"},
+    '2401_multi_limited_nopack_ov': {total:2015.50,   days:2, detail:"Day 1: 3.75 hrs loading • Day 2: 2.75 hrs unloading",                                      breakdown:"Day 1 – $949.75 Labor\nDay 2 – $325 Overnight Hold\nDay 3 – $740.75 Labor"},
     // ── 3,001–3,500 sqft ──
-    '3001_single_entire_pack_nov':  {total:4746,     days:2, detail:"Day 1: 5 hrs packing (4 Pros) • Day 2: 7 hrs moving (6 Pros + 2 trucks)",                  breakdown:"Day 1 – $1,346.00 Labor, $500 Material\nDay 2 – $2,715.00 Labor, $185 2nd Truck"},
-    '3001_single_entire_nopack_nov':{total:2991.25,  days:1, detail:"7.25 hrs with 6 Pros + 2 trucks",                                                          breakdown:"$2,806.25 Labor, $185 2nd Truck"},
-    '3001_single_entire_pack_ov':   {total:4029.5,   days:3, detail:"Day 1: 5 hrs packing (4 Pros) • Day 2: 3 hrs loading (5 Pros, 2 trucks) + overnight hold • Day 3: 2.5 hrs unloading", breakdown:"Day 1 – $1,346.00 Labor, $500 Material\nDay 2 – $1,025.00 Labor, $185 2nd Truck, $250 Overnight Hold\nDay 3 – $723.50 Labor"},
-    '3001_single_entire_nopack_ov': {total:2183.5,   days:3, detail:"Day 1: 3 hrs loading (5 Pros, 2 trucks) + overnight hold • Day 3: 2.5 hrs unloading",       breakdown:"Day 1 – $1,025.00 Labor, $185 2nd Truck\nDay 2 – $250.00 Overnight Hold\nDay 3 – $723.50 Labor"},
-    '3001_single_limited_pack_nov': {total:1925,     days:1, detail:"5.25 hrs to pack & move (5 Pros)",                                                          breakdown:"$1,700.00 Labor, $225 Material"},
-    '3001_single_limited_nopack_nov':{total:1159.25, days:1, detail:"4.25 hrs with 4 Pros + 26' truck",                                                         breakdown:"$1,159.25 Labor"},
-    '3001_single_limited_pack_ov':  {total:2278.25,  days:2, detail:"Day 1: 3.75 hrs pack & load (4 Pros, 2 trucks) • Day 2: 2.5 hrs unloading",                breakdown:"Day 1 – $1,034.75 Labor, $225 Material, $250 Overnight, $185 2nd Truck\nDay 2 – $583.50 Labor"},
-    '3001_single_limited_nopack_ov':{total:2147.75,  days:2, detail:"Day 1: 3.75 hrs loading (4 Pros, 2 trucks) • Day 2: 3 hrs unloading",                      breakdown:"Day 1 – $1,034.75 Labor, $185 2nd Truck, $250 Overnight\nDay 2 – $678.00 Labor"},
-    '3001_multi_entire_pack_nov':   {total:5115.25,  days:2, detail:"Day 1: 5.75 hrs packing (4 Pros) • Day 2: 7.5 hrs moving (6 Pros + 2 trucks)",             breakdown:"Day 1 – $1,532.75 Labor, $500 Material\nDay 2 – $2,897.50 Labor, $185 2nd Truck"},
-    '3001_multi_entire_nopack_nov': {total:3082.5,   days:1, detail:"7.5 hrs with 6 Pros + 2 trucks",                                                           breakdown:"$2,897.50 Labor, $185 2nd Truck"},
-    '3001_multi_entire_pack_ov':    {total:4216.25,  days:3, detail:"Day 1: 5.75 hrs packing (4 Pros) • Day 2: 3 hrs loading (5 Pros, 2 trucks) + overnight hold • Day 3: 2.5 hrs unloading", breakdown:"Day 1 – $1,532.75 Labor, $500 Material\nDay 2 – $1,025.00 Labor, $185 2nd Truck, $250 Overnight Hold\nDay 3 – $723.50 Labor"},
-    '3001_multi_entire_nopack_ov':  {total:2183.5,   days:3, detail:"Day 1: 3 hrs loading (5 Pros, 2 trucks) + overnight hold • Day 3: 2.5 hrs unloading",       breakdown:"Day 1 – $1,025.00 Labor, $185 2nd Truck\nDay 2 – $250.00 Overnight Hold\nDay 3 – $723.50 Labor"},
-    '3001_multi_limited_pack_nov':  {total:2000,     days:1, detail:"5.5 hrs to pack & move (5 Pros + 26' truck)",                                              breakdown:"$1,775.00 Labor, $225 Material"},
-    '3001_multi_limited_nopack_nov':{total:1221.5,   days:1, detail:"4.5 hrs with 4 Pros + 26' truck",                                                          breakdown:"$1,221.50 Labor"},
-    '3001_multi_limited_pack_ov':   {total:2435,     days:2, detail:"Day 1: 4 hrs pack & load (4 Pros, 2 trucks) • Day 2: 3 hrs unloading",                     breakdown:"Day 1 – $1,097.00 Labor, $225 Material, $250 Overnight, $185 2nd Truck\nDay 2 – $678.00 Labor"},
-    '3001_multi_limited_nopack_ov': {total:2257.25,  days:2, detail:"Day 1: 4 hrs loading (4 Pros, 2 trucks) • Day 2: 3.25 hrs unloading",                      breakdown:"Day 1 – $1,097.00 Labor, $185 2nd Truck, $250 Overnight\nDay 2 – $725.25 Labor"},
+    '3001_single_entire_pack_nov':  {total:5505,     days:2, detail:"Day 1: 5 hrs packing (4 Pros) • Day 2: 7 hrs moving (6 Pros + 2 trucks)",                  breakdown:"Day 1 – $1,566 Labor, $500 Material\nDay 2 – $3,114 Labor, $325 2nd Truck"},
+    '3001_single_entire_nopack_nov':{total:3543.75,  days:1, detail:"7.25 hrs with 6 Pros + 2 trucks",                                                          breakdown:"$3,218.75 Labor, $325 2nd Truck"},
+    '3001_single_entire_pack_ov':   {total:4647.50,   days:3, detail:"Day 1: 5 hrs packing (4 Pros) • Day 2: 3 hrs loading (5 Pros, 2 trucks) + overnight hold • Day 3: 2.5 hrs unloading", breakdown:"Day 1 – $1,566 Labor, $500 Material\nDay 2 – $1,243 Labor, $325 2nd Truck, $325 Overnight Hold\nDay 3 – $688.50 Labor"},
+    '3001_single_entire_nopack_ov': {total:2581.50,   days:3, detail:"Day 1: 3 hrs loading (5 Pros, 2 trucks) + overnight hold • Day 3: 2.5 hrs unloading",       breakdown:"Day 1 – $1,243 Labor\nDay 2 – $325 2nd Truck, $325 Overnight Hold\nDay 3 – $688.50 Labor"},
+    '3001_single_limited_pack_nov': {total:2275.75,     days:1, detail:"5.25 hrs to pack & move (5 Pros)",                                                          breakdown:"$2,050.75 Labor, $225 Material"},
+    '3001_single_limited_nopack_nov':{total:1356.75, days:1, detail:"4.25 hrs with 4 Pros + 26' truck",                                                         breakdown:"$1,356.75 Labor"},
+    '3001_single_limited_pack_ov':  {total:2455.75,  days:2, detail:"Day 1: 3.75 hrs pack & load (4 Pros, 2 trucks) • Day 2: 2.5 hrs unloading",                breakdown:"Day 1 – $1,217.25 Labor, $225 Material\nDay 2 – $325 2nd Truck, $325 Overnight Hold\nDay 3 – $688.50 Labor"},
+    '3001_single_limited_nopack_ov':{total:2660.25,  days:2, detail:"Day 1: 3.75 hrs loading (4 Pros, 2 trucks) • Day 2: 3 hrs unloading",                      breakdown:"Day 1 – $1,217.25 Labor\nDay 2 – $325 2nd Truck, $325 Overnight Hold\nDay 3 – $793 Labor"},
+    '3001_multi_entire_pack_nov':   {total:5923.75,  days:2, detail:"Day 1: 5.75 hrs packing (4 Pros) • Day 2: 7.5 hrs moving (6 Pros + 2 trucks)",             breakdown:"Day 1 – $1,775.25 Labor, $500 Material\nDay 2 – $3,323.50 Labor, $325 2nd Truck"},
+    '3001_multi_entire_nopack_nov': {total:3648.50,   days:1, detail:"7.5 hrs with 6 Pros + 2 trucks",                                                           breakdown:"$3,323.50 Labor, $325 2nd Truck"},
+    '3001_multi_entire_pack_ov':    {total:4856.75,  days:3, detail:"Day 1: 5.75 hrs packing (4 Pros) • Day 2: 3 hrs loading (5 Pros, 2 trucks) + overnight hold • Day 3: 2.5 hrs unloading", breakdown:"Day 1 – $1,775.25 Labor, $500 Material\nDay 2 – $1,243 Labor, $325 2nd Truck, $325 Overnight Hold\nDay 3 – $688.50 Labor"},
+    '3001_multi_entire_nopack_ov':  {total:2581.50,   days:3, detail:"Day 1: 3 hrs loading (5 Pros, 2 trucks) + overnight hold • Day 3: 2.5 hrs unloading",       breakdown:"Day 1 – $1,243 Labor\nDay 2 – $325 2nd Truck, $325 Overnight Hold\nDay 3 – $688.50 Labor"},
+    '3001_multi_limited_pack_nov':  {total:2365.50,     days:1, detail:"5.5 hrs to pack & move (5 Pros + 26' truck)",                                              breakdown:"$2,140.50 Labor, $225 Material"},
+    '3001_multi_limited_nopack_nov':{total:1426.50,   days:1, detail:"4.5 hrs with 4 Pros + 26' truck",                                                          breakdown:"$1,426.50 Labor"},
+    '3001_multi_limited_pack_ov':   {total:2630,     days:2, detail:"Day 1: 4 hrs pack & load (4 Pros, 2 trucks) • Day 2: 3 hrs unloading",                     breakdown:"Day 1 – $1,287 Labor, $225 Material\nDay 2 – $325 2nd Truck, $325 Overnight Hold\nDay 3 – $793 Labor"},
+    '3001_multi_limited_nopack_ov': {total:2782.25,  days:2, detail:"Day 1: 4 hrs loading (4 Pros, 2 trucks) • Day 2: 3.25 hrs unloading",                      breakdown:"Day 1 – $1,287 Labor\nDay 2 – $325 2nd Truck, $325 Overnight Hold\nDay 3 – $845.25 Labor"},
     // ── 3,501–4,500 sqft ──
-    '3501_single_entire_pack_nov':  {total:6055.25,  days:2, detail:"Day 1: 5.75 hrs packing (4 Pros) • Day 2: 7.75 hrs moving (7 Pros + 3 trucks)",            breakdown:"Day 1 – $1,532.75 Labor, $650 Material\nDay 2 – $3,502.50 Labor, $370 2nd & 3rd Trucks"},
-    '3501_single_entire_nopack_nov':{total:3872.5,   days:1, detail:"7.75 hrs with 7 Pros + 3 trucks",                                                          breakdown:"$3,502.50 Labor, $370 2nd & 3rd Trucks"},
-    '3501_single_entire_pack_ov':   {total:4943.5,   days:3, detail:"Day 1: 5 hrs packing (4 Pros) • Day 2: 3 hrs loading (6 Pros, 3 trucks) + overnight hold • Day 3: 2.5 hrs unloading", breakdown:"Day 1 – $1,346.00 Labor, $650 Material\nDay 2 – $1,255.00 Labor, $370 2nd & 3rd Trucks, $250 Overnight Hold\nDay 3 – $1,072.50 Labor"},
-    '3501_single_entire_nopack_ov': {total:2947.5,   days:3, detail:"Day 1: 3 hrs loading (6 Pros, 3 trucks) + overnight hold • Day 3: 2.5 hrs unloading",       breakdown:"Day 1 – $1,255.00 Labor, $370 2nd & 3rd Trucks\nDay 2 – $250.00 Overnight Hold\nDay 3 – $1,072.50 Labor"},
-    '3501_single_limited_pack_nov': {total:2110,     days:1, detail:"5.25 hrs to pack & move (5 Pros + 2 trucks)",                                               breakdown:"$1,700.00 Labor, $225 Material, $185 2nd Truck"},
-    '3501_single_limited_nopack_nov':{total:1780,    days:1, detail:"6 hrs with 4 Pros + 2 trucks",                                                             breakdown:"$1,595.00 Labor, $185 2nd Truck"},
-    '3501_single_limited_pack_ov':  {total:2729.5,   days:2, detail:"Day 1: 4.25 hrs pack & load (4 Pros, 2 trucks) • Day 2: 3.25 hrs unloading",               breakdown:"Day 1 – $1,159.25 Labor, $225 Material, $250 Overnight, $185 2nd Truck\nDay 2 – $910.25 Labor"},
-    '3501_single_limited_nopack_ov':{total:2504.5,   days:2, detail:"Day 1: 4.25 hrs loading (4 Pros, 2 trucks) • Day 2: 3.25 hrs unloading",                   breakdown:"Day 1 – $1,159.25 Labor, $185 2nd Truck, $250 Overnight\nDay 2 – $910.25 Labor"},
-    '3501_multi_entire_pack_nov':   {total:6393.75,  days:2, detail:"Day 1: 6 hrs packing (4 Pros) • Day 2: 7.25 hrs moving (8 Pros + 3 trucks)",               breakdown:"Day 1 – $1,595.00 Labor, $650 Material\nDay 2 – $3,778.75 Labor, $370 2nd & 3rd Trucks"},
-    '3501_multi_entire_nopack_nov': {total:4148.75,  days:1, detail:"7.25 hrs with 8 Pros + 3 trucks",                                                          breakdown:"$3,778.75 Labor, $370 2nd & 3rd Trucks"},
-    '3501_multi_entire_pack_ov':    {total:5192.5,   days:3, detail:"Day 1: 6 hrs packing (4 Pros) • Day 2: 3 hrs loading (6 Pros, 3 trucks) + overnight hold • Day 3: 2.5 hrs unloading", breakdown:"Day 1 – $1,595.00 Labor, $650 Material\nDay 2 – $1,255.00 Labor, $370 2nd & 3rd Trucks, $250 Overnight Hold\nDay 3 – $1,072.50 Labor"},
-    '3501_multi_entire_nopack_ov':  {total:2947.5,   days:3, detail:"Day 1: 3 hrs loading (6 Pros, 3 trucks) + overnight hold • Day 3: 2.5 hrs unloading",       breakdown:"Day 1 – $1,255.00 Labor, $370 2nd & 3rd Trucks\nDay 2 – $250.00 Overnight Hold\nDay 3 – $1,072.50 Labor"},
-    '3501_multi_limited_pack_nov':  {total:2485,     days:1, detail:"6.5 hrs to pack & move (5 Pros + 2 trucks)",                                                breakdown:"$2,075.00 Labor, $225 Material, $185 2nd Truck"},
-    '3501_multi_limited_nopack_nov':{total:1780,     days:1, detail:"6 hrs with 4 Pros + 2 trucks",                                                             breakdown:"$1,595.00 Labor, $185 2nd Truck"},
-    '3501_multi_limited_pack_ov':   {total:2854,     days:2, detail:"Day 1: 4.5 hrs pack & load (4 Pros, 2 trucks) • Day 2: 3.5 hrs unloading",                 breakdown:"Day 1 – $1,221.50 Labor, $225 Material, $250 Overnight, $185 2nd Truck\nDay 2 – $972.50 Labor"},
-    '3501_multi_limited_nopack_ov': {total:2629,     days:2, detail:"Day 1: 4.5 hrs loading (4 Pros, 2 trucks) • Day 2: 3.5 hrs unloading",                     breakdown:"Day 1 – $1,221.50 Labor, $185 2nd Truck, $250 Overnight\nDay 2 – $972.50 Labor"},
+    '3501_single_entire_pack_nov':  {total:6737.75,  days:2, detail:"Day 1: 5.75 hrs packing (4 Pros) • Day 2: 7.75 hrs moving (7 Pros + 3 trucks)",            breakdown:"Day 1 – $1,775.25 Labor, $650 Material\nDay 2 – $3,662.50 Labor, $650 2nd & 3rd Trucks"},
+    '3501_single_entire_nopack_nov':{total:4312.50,   days:1, detail:"7.75 hrs with 7 Pros + 3 trucks",                                                          breakdown:"$3,662.50 Labor, $650 2nd & 3rd Trucks"},
+    '3501_single_entire_pack_ov':   {total:5692.50,   days:3, detail:"Day 1: 5 hrs packing (4 Pros) • Day 2: 3 hrs loading (6 Pros, 3 trucks) + overnight hold • Day 3: 2.5 hrs unloading", breakdown:"Day 1 – $1,566 Labor, $650 Material\nDay 2 – $1,438 Labor, $650 2nd & 3rd Trucks, $325 Overnight Hold\nDay 3 – $1,063.50 Labor"},
+    '3501_single_entire_nopack_ov': {total:3476.50,   days:3, detail:"Day 1: 3 hrs loading (6 Pros, 3 trucks) + overnight hold • Day 3: 2.5 hrs unloading",       breakdown:"Day 1 – $1,438 Labor\nDay 2 – $650 2nd & 3rd Trucks, $325 Overnight Hold\nDay 3 – $1,063.50 Labor"},
+    '3501_single_limited_pack_nov': {total:2600.75,     days:1, detail:"5.25 hrs to pack & move (5 Pros + 2 trucks)",                                               breakdown:"$2,050.75 Labor, $225 Material, $325 2nd Truck"},
+    '3501_single_limited_nopack_nov':{total:2170,    days:1, detail:"6 hrs with 4 Pros + 2 trucks",                                                             breakdown:"$1,845 Labor, $325 2nd Truck"},
+    '3501_single_limited_pack_ov':  {total:2752,   days:2, detail:"Day 1: 4.25 hrs pack & load (4 Pros, 2 trucks) • Day 2: 3.25 hrs unloading",               breakdown:"Day 1 – $1,356.75 Labor, $225 Material\nDay 2 – $325 2nd Truck, $325 Overnight Hold\nDay 3 – $845.25 Labor"},
+    '3501_single_limited_nopack_ov':{total:2852,   days:2, detail:"Day 1: 4.25 hrs loading (4 Pros, 2 trucks) • Day 2: 3.25 hrs unloading",                   breakdown:"Day 1 – $1,356.75 Labor\nDay 2 – $325 2nd Truck, $325 Overnight Hold\nDay 3 – $845.25 Labor"},
+    '3501_multi_entire_pack_nov':   {total:7151.25,  days:2, detail:"Day 1: 6 hrs packing (4 Pros) • Day 2: 7.25 hrs moving (8 Pros + 3 trucks)",               breakdown:"Day 1 – $1,845 Labor, $650 Material\nDay 2 – $4,006.25 Labor, $650 2nd & 3rd Trucks"},
+    '3501_multi_entire_nopack_nov': {total:4656.25,  days:1, detail:"7.25 hrs with 8 Pros + 3 trucks",                                                          breakdown:"$4,006.25 Labor, $650 2nd & 3rd Trucks"},
+    '3501_multi_entire_pack_ov':    {total:5971.50,   days:3, detail:"Day 1: 6 hrs packing (4 Pros) • Day 2: 3 hrs loading (6 Pros, 3 trucks) + overnight hold • Day 3: 2.5 hrs unloading", breakdown:"Day 1 – $1,845 Labor, $650 Material\nDay 2 – $1,438 Labor, $650 2nd & 3rd Trucks, $325 Overnight Hold\nDay 3 – $1,063.50 Labor"},
+    '3501_multi_entire_nopack_ov':  {total:3476.50,   days:3, detail:"Day 1: 3 hrs loading (6 Pros, 3 trucks) + overnight hold • Day 3: 2.5 hrs unloading",       breakdown:"Day 1 – $1,438 Labor\nDay 2 – $650 2nd & 3rd Trucks, $325 Overnight Hold\nDay 3 – $1,063.50 Labor"},
+    '3501_multi_limited_pack_nov':  {total:3049.50,     days:1, detail:"6.5 hrs to pack & move (5 Pros + 2 trucks)",                                                breakdown:"$2,499.50 Labor, $225 Material, $325 2nd Truck"},
+    '3501_multi_limited_nopack_nov':{total:2170,     days:1, detail:"6 hrs with 4 Pros + 2 trucks",                                                             breakdown:"$1,845 Labor, $325 2nd Truck"},
+    '3501_multi_limited_pack_ov':   {total:2874,     days:2, detail:"Day 1: 4.5 hrs pack & load (4 Pros, 2 trucks) • Day 2: 3.5 hrs unloading",                 breakdown:"Day 1 – $1,426.50 Labor, $225 Material\nDay 2 – $325 2nd Truck, $325 Overnight Hold\nDay 3 – $897.50 Labor"},
+    '3501_multi_limited_nopack_ov': {total:2974,     days:2, detail:"Day 1: 4.5 hrs loading (4 Pros, 2 trucks) • Day 2: 3.5 hrs unloading",                     breakdown:"Day 1 – $1,426.50 Labor\nDay 2 – $325 2nd Truck, $325 Overnight Hold\nDay 3 – $897.50 Labor"},
     // ── 4,501+ sqft ──
-    '4501_single_entire_pack_nov':  {total:6921.25,  days:2, detail:"Day 1: 5.5 hrs packing (5 Pros) • Day 2: 7.75 hrs moving (8 Pros + 3 trucks)",             breakdown:"Day 1 – $1,775.00 Labor, $750 Material\nDay 2 – $4,026.25 Labor, $370 2nd & 3rd Trucks"},
-    '4501_single_entire_nopack_nov':{total:4396.25,  days:1, detail:"7.75 hrs with 8 Pros + 3 trucks",                                                          breakdown:"$4,026.25 Labor, $370 2nd & 3rd Trucks"},
-    '4501_single_entire_pack_ov':   {total:6280,     days:3, detail:"Day 1: 5.5 hrs packing (5 Pros) • Day 2: 3.5 hrs loading (7 Pros, 3 trucks) + overnight hold • Day 3: 3 hrs unloading", breakdown:"Day 1 – $1,775.00 Labor, $750 Material\nDay 2 – $1,675.00 Labor, $370 2nd & 3rd Trucks, $250 Overnight Hold\nDay 3 – $1,460.00 Labor"},
-    '4501_single_entire_nopack_ov': {total:3755,     days:3, detail:"Day 1: 3.5 hrs loading (7 Pros, 3 trucks) + overnight hold • Day 3: 3 hrs unloading",       breakdown:"Day 1 – $1,675.00 Labor, $370 2nd & 3rd Trucks\nDay 2 – $250.00 Overnight Hold\nDay 3 – $1,460.00 Labor"},
-    '4501_single_limited_pack_nov': {total:3083.75,  days:1, detail:"6.75 hrs to pack & move (6 Pros + 2 trucks)",                                               breakdown:"$2,623.75 Labor, $275 Material, $185 2nd Truck"},
-    '4501_single_limited_nopack_nov':{total:2110,    days:1, detail:"6 hrs with 5 Pros + 2 trucks",                                                             breakdown:"$1,925.00 Labor, $185 2nd Truck"},
-    '4501_single_limited_pack_ov':  {total:3981,     days:2, detail:"Day 1: 6 hrs pack & load (5 Pros, 2 trucks) • Day 2: 5 hrs unloading (4 Pros)",            breakdown:"Day 1 – $1,925.00 Labor, $275 Material, $250 Overnight, $185 2nd Truck\nDay 2 – $1,346.00 Labor"},
-    '4501_single_limited_nopack_ov':{total:3256,     days:2, detail:"Day 1: 4.5 hrs loading (5 Pros, 2 trucks) • Day 2: 5 hrs unloading",                       breakdown:"Day 1 – $1,475.00 Labor, $185 2nd Truck, $250 Overnight\nDay 2 – $1,346.00 Labor"},
-    '4501_multi_entire_pack_nov':   {total:7157.5,   days:2, detail:"Day 1: 5.75 hrs packing (5 Pros) • Day 2: 7.25 hrs moving (9 Pros + 3 trucks)",            breakdown:"Day 1 – $1,850.00 Labor, $750 Material\nDay 2 – $4,187.50 Labor, $370 2nd & 3rd Trucks"},
-    '4501_multi_entire_nopack_nov': {total:4557.5,   days:1, detail:"7.25 hrs with 9 Pros + 3 trucks",                                                          breakdown:"$4,187.50 Labor, $370 2nd & 3rd Trucks"},
-    '4501_multi_entire_pack_ov':    {total:6430,     days:3, detail:"Day 1: 6 hrs packing (5 Pros) • Day 2: 3.5 hrs loading (7 Pros, 3 trucks) + overnight hold • Day 3: 3 hrs unloading", breakdown:"Day 1 – $1,925.00 Labor, $750 Material\nDay 2 – $1,675.00 Labor, $370 2nd & 3rd Trucks, $250 Overnight Hold\nDay 3 – $1,460.00 Labor"},
-    '4501_multi_entire_nopack_ov':  {total:3755,     days:3, detail:"Day 1: 3.5 hrs loading (7 Pros, 3 trucks) + overnight hold • Day 3: 3 hrs unloading",       breakdown:"Day 1 – $1,675.00 Labor, $370 2nd & 3rd Trucks\nDay 2 – $250.00 Overnight Hold\nDay 3 – $1,460.00 Labor"},
-    '4501_multi_limited_pack_nov':  {total:3083.75,  days:1, detail:"6.75 hrs to pack & move (6 Pros + 2 trucks)",                                               breakdown:"$2,623.75 Labor, $275 Material, $185 2nd Truck"},
-    '4501_multi_limited_nopack_nov':{total:2410,     days:1, detail:"7 hrs with 5 Pros + 2 trucks",                                                             breakdown:"$2,225.00 Labor, $185 2nd Truck"},
-    '4501_multi_limited_pack_ov':   {total:4410,     days:2, detail:"Day 1: 6.25 hrs pack & load (5 Pros, 2 trucks) • Day 2: 5.25 hrs unloading",               breakdown:"Day 1 – $2,000.00 Labor, $275 Material, $250 Overnight, $185 2nd Truck\nDay 2 – $1,700.00 Labor"},
-    '4501_multi_limited_nopack_ov': {total:3685,     days:2, detail:"Day 1: 4.75 hrs loading (5 Pros, 2 trucks) • Day 2: 5.25 hrs unloading",                   breakdown:"Day 1 – $1,550.00 Labor, $185 2nd Truck, $250 Overnight\nDay 2 – $1,700.00 Labor"},
+    '4501_single_entire_pack_nov':  {total:7809.25,  days:2, detail:"Day 1: 5.5 hrs packing (5 Pros) • Day 2: 7.75 hrs moving (8 Pros + 3 trucks)",             breakdown:"Day 1 – $2,140.50 Labor, $750 Material\nDay 2 – $4,268.75 Labor, $650 2nd & 3rd Trucks"},
+    '4501_single_entire_nopack_nov':{total:4918.75,  days:1, detail:"7.75 hrs with 8 Pros + 3 trucks",                                                          breakdown:"$4,268.75 Labor, $650 2nd & 3rd Trucks"},
+    '4501_single_entire_pack_ov':   {total:6623.50,     days:3, detail:"Day 1: 5.5 hrs packing (5 Pros) • Day 2: 3.5 hrs loading (7 Pros, 3 trucks) + overnight hold • Day 3: 3 hrs unloading", breakdown:"Day 1 – $2,140.50 Labor, $750 Material\nDay 2 – $1,750 Labor, $650 2nd & 3rd Trucks, $325 Overnight Hold\nDay 3 – $1,008 Labor"},
+    '4501_single_entire_nopack_ov': {total:3733,     days:3, detail:"Day 1: 3.5 hrs loading (7 Pros, 3 trucks) + overnight hold • Day 3: 3 hrs unloading",       breakdown:"Day 1 – $1,750 Labor\nDay 2 – $650 2nd & 3rd Trucks, $325 Overnight Hold\nDay 3 – $1,008 Labor"},
+    '4501_single_limited_pack_nov': {total:3609.25,  days:1, detail:"6.75 hrs to pack & move (6 Pros + 2 trucks)",                                               breakdown:"$3,009.25 Labor, $275 Material, $325 2nd Truck"},
+    '4501_single_limited_nopack_nov':{total:2645,    days:1, detail:"6 hrs with 5 Pros + 2 trucks",                                                             breakdown:"$2,320 Labor, $325 2nd Truck"},
+    '4501_single_limited_pack_ov':  {total:4486,     days:2, detail:"Day 1: 6 hrs pack & load (5 Pros, 2 trucks) • Day 2: 5 hrs unloading (4 Pros)",            breakdown:"Day 1 – $2,320 Labor, $275 Material\nDay 2 – $325 2nd Truck, $325 Overnight Hold\nDay 3 – $1,566 Labor"},
+    '4501_single_limited_nopack_ov':{total:3997.50,     days:2, detail:"Day 1: 4.5 hrs loading (5 Pros, 2 trucks) • Day 2: 5 hrs unloading",                       breakdown:"Day 1 – $1,781.50 Labor\nDay 2 – $325 2nd Truck, $325 Overnight Hold\nDay 3 – $1,566 Labor"},
+    '4501_multi_entire_pack_nov':   {total:8174,   days:2, detail:"Day 1: 5.75 hrs packing (5 Pros) • Day 2: 7.25 hrs moving (9 Pros + 3 trucks)",            breakdown:"Day 1 – $2,230.25 Labor, $750 Material\nDay 2 – $4,543.75 Labor, $650 2nd & 3rd Trucks"},
+    '4501_multi_entire_nopack_nov': {total:5193.75,   days:1, detail:"7.25 hrs with 9 Pros + 3 trucks",                                                          breakdown:"$4,543.75 Labor, $650 2nd & 3rd Trucks"},
+    '4501_multi_entire_pack_ov':    {total:6803,     days:3, detail:"Day 1: 6 hrs packing (5 Pros) • Day 2: 3.5 hrs loading (7 Pros, 3 trucks) + overnight hold • Day 3: 3 hrs unloading", breakdown:"Day 1 – $2,320 Labor, $750 Material\nDay 2 – $1,750 Labor, $650 2nd & 3rd Trucks, $325 Overnight Hold\nDay 3 – $1,008 Labor"},
+    '4501_multi_entire_nopack_ov':  {total:3733,     days:3, detail:"Day 1: 3.5 hrs loading (7 Pros, 3 trucks) + overnight hold • Day 3: 3 hrs unloading",       breakdown:"Day 1 – $1,750 Labor\nDay 2 – $650 2nd & 3rd Trucks, $325 Overnight Hold\nDay 3 – $1,008 Labor"},
+    '4501_multi_limited_pack_nov':  {total:3609.25,  days:1, detail:"6.75 hrs to pack & move (6 Pros + 2 trucks)",                                               breakdown:"$3,009.25 Labor, $275 Material, $325 2nd Truck"},
+    '4501_multi_limited_nopack_nov':{total:3004,     days:1, detail:"7 hrs with 5 Pros + 2 trucks",                                                             breakdown:"$2,679 Labor, $325 2nd Truck"},
+    '4501_multi_limited_pack_ov':   {total:4645.50,     days:2, detail:"Day 1: 6.25 hrs pack & load (5 Pros, 2 trucks) • Day 2: 5.25 hrs unloading",               breakdown:"Day 1 – $2,409.75 Labor, $275 Material\nDay 2 – $325 2nd Truck, $325 Overnight Hold\nDay 3 – $1,635.75 Labor"},
+    '4501_multi_limited_nopack_ov': {total:4157,     days:2, detail:"Day 1: 4.75 hrs loading (5 Pros, 2 trucks) • Day 2: 5.25 hrs unloading",                   breakdown:"Day 1 – $1,871.25 Labor\nDay 2 – $325 2nd Truck, $325 Overnight Hold\nDay 3 – $1,635.75 Labor"},
   };
 }
 function getAptQuote(floor, beds, packing, scope) {
@@ -1683,54 +1732,218 @@ function getAptQuote(floor, beds, packing, scope) {
   const pk = packing ? 'pack' : 'nopack';
   const map = {
     // ── 1BR 1st floor — 2 PROS ──
-    '1st_1_entire_pack':       {total:851.75,  crew:2, days:1, detail:'4.25 hrs with 2 Pros — pack & move',                          breakdown:'$701.75 Labor, $150 Material'},
-    '1st_1_entire_nopack':     {total:701.75,  crew:2, days:1, detail:'4.25 hrs with 2 Pros — load & move',                          breakdown:'$701.75 Labor'},
-    '1st_1_limited_pack':      {total:712.75,  crew:2, days:1, detail:'3.25 hrs with 2 Pros — pack & move (select items)',           breakdown:'$562.75 Labor, $150 Material'},
-    '1st_1_limited_nopack':    {total:528,     crew:2, days:1, detail:'3 hrs with 2 Pros — load & move (select items)',              breakdown:'$528.00 Labor'},
+    '1st_1_entire_pack':       {total:1021,  crew:2, days:1, detail:'5 hrs with 2 Pros — packing & move (packing materials included)',                 breakdown:'$921 Labor\n$100.00 Packing Materials (included)'},
+    '1st_1_entire_nopack':     {total:563.25,  crew:2, days:1, detail:'2.75 hrs with 2 Pros — load & move',                          breakdown:'$563.25 Labor'},
+    '1st_1_limited_pack':      {total:717.75,  crew:2, days:1, detail:'3.25 hrs with 2 Pros — packing & move, large/limited items (packing materials included)', breakdown:'$642.75 Labor\n$75.00 Packing Materials (included)'},
+    '1st_1_limited_nopack':    {total:404.25,  crew:2, days:1, detail:'1.75 hrs with 2 Pros — load & move, large/limited items',     breakdown:'$404.25 Labor'},
     // ── 1BR 2nd+ floor — 2 PROS ──
-    '2nd+_1_entire_pack':      {total:990.75,  crew:2, days:1, detail:'5.25 hrs with 2 Pros — pack & move (2nd+ floor)',             breakdown:'$840.75 Labor, $150 Material'},
-    '2nd+_1_entire_nopack':    {total:840.75,  crew:2, days:1, detail:'5.25 hrs with 2 Pros — load & move (2nd+ floor)',             breakdown:'$840.75 Labor'},
-    '2nd+_1_limited_pack':     {total:817,     crew:2, days:1, detail:'4 hrs with 2 Pros — pack & move (2nd+ floor, select items)',  breakdown:'$667.00 Labor, $150 Material'},
-    '2nd+_1_limited_nopack':   {total:632.25,  crew:2, days:1, detail:'3.75 hrs with 2 Pros — load & move (2nd+ floor, select items)',breakdown:'$632.25 Labor'},
+    '2nd+_1_entire_pack':      {total:1100.50,  crew:2, days:1, detail:'5.5 hrs with 2 Pros — packing & move (multi-level considered, materials included)', breakdown:'$1,000.50 Labor\n$100.00 Packing Materials (included)'},
+    '2nd+_1_entire_nopack':    {total:642.75,  crew:2, days:1, detail:'3.25 hrs with 2 Pros — load & move (multi-level considered)', breakdown:'$642.75 Labor'},
+    '2nd+_1_limited_pack':     {total:797.25,  crew:2, days:1, detail:'3.75 hrs with 2 Pros — packing & move, large/limited items (multi-level considered, materials included)', breakdown:'$722.25 Labor\n$75.00 Packing Materials (included)'},
+    '2nd+_1_limited_nopack':   {total:483.75,  crew:2, days:1, detail:'2.25 hrs with 2 Pros — load & move, large/limited items (multi-level considered)', breakdown:'$483.75 Labor'},
     // ── 2BR 1st floor — 2 PROS ──
-    '1st_2_entire_pack':       {total:1015.75, crew:2, days:1, detail:'5.25 hrs with 2 Pros — pack & move',                          breakdown:'$840.75 Labor, $175 Material'},
-    '1st_2_entire_nopack':     {total:840.75,  crew:2, days:1, detail:'5.25 hrs with 2 Pros — load & move',                          breakdown:'$840.75 Labor'},
-    '1st_2_limited_pack':      {total:842,     crew:2, days:1, detail:'4 hrs with 2 Pros — pack & move (select items)',              breakdown:'$667.00 Labor, $175 Material'},
-    '1st_2_limited_nopack':    {total:632.25,  crew:2, days:1, detail:'3.75 hrs with 2 Pros — load & move (select items)',           breakdown:'$632.25 Labor'},
+    '1st_2_entire_pack':       {total:1361, crew:3, days:1, detail:'5 hrs with 3 Pros — packing & move (packing materials included)', breakdown:'$1,211 Labor\n$150.00 Packing Materials (included)'},
+    '1st_2_entire_nopack':     {total:682.50,  crew:2, days:1, detail:'3.5 hrs with 2 Pros — load & move',                          breakdown:'$682.50 Labor'},
+    '1st_2_limited_pack':      {total:717.75,  crew:2, days:1, detail:'3.25 hrs with 2 Pros — packing & move, large/limited items (packing materials included)', breakdown:'$642.75 Labor\n$75.00 Packing Materials (included)'},
+    '1st_2_limited_nopack':    {total:523.50,  crew:2, days:1, detail:'2.5 hrs with 2 Pros — load & move, large/limited items',        breakdown:'$523.50 Labor'},
     // ── 2BR 2nd+ LIMITED — 2 PROS ──
-    '2nd+_2_limited_pack':     {total:1120.00, crew:2, days:1, detail:'6 hrs with 2 Pros — pack & move (2nd+ floor, select items)',  breakdown:'$945.00 Labor, $175 Material'},
-    '2nd+_2_limited_nopack':   {total:945.00,  crew:2, days:1, detail:'6 hrs with 2 Pros — load & move (2nd+ floor, select items)',  breakdown:'$945.00 Labor'},
+    '2nd+_2_limited_pack':     {total:797.25,  crew:2, days:1, detail:'3.75 hrs with 2 Pros — packing & move, large/limited items (multi-level considered, materials included)', breakdown:'$722.25 Labor\n$75.00 Packing Materials (included)'},
+    '2nd+_2_limited_nopack':   {total:603,  crew:2, days:1, detail:'3 hrs with 2 Pros — load & move, large/limited items (multi-level considered)', breakdown:'$603 Labor'},
     // ── 2BR 2nd+ ENTIRE — 3 PROS ──
-    '2nd+_2_entire_pack':      {total:1136.50, crew:3, days:1, detail:'4.5 hrs with 3 Pros — pack & move (2nd+ floor)',                breakdown:'$961.50 Labor, $175 Material'},
-    '2nd+_2_entire_nopack':    {total:961.50,  crew:3, days:1, detail:'4.5 hrs with 3 Pros — load & move (2nd+ floor)',                breakdown:'$961.50 Labor'},
+    '2nd+_2_entire_pack':      {total:1465.50, crew:3, days:1, detail:'5.5 hrs with 3 Pros — packing & move (multi-level considered, materials included)', breakdown:'$1,315.50 Labor\n$150.00 Packing Materials (included)'},
+    '2nd+_2_entire_nopack':    {total:1002,  crew:3, days:1, detail:'4 hrs with 3 Pros — load & move (multi-level considered)',      breakdown:'$1,002 Labor'},
     // ── 3BR 1st floor — 3 PROS ──
-    '1st_3_entire_pack':       {total:1564.50, crew:3, days:1, detail:'6.5 hrs with 3 Pros — pack & move',                           breakdown:'$1,339.50 Labor, $225 Material'},
-    '1st_3_entire_nopack':     {total:1339.50, crew:3, days:1, detail:'6.5 hrs with 3 Pros — load & move',                           breakdown:'$1,339.50 Labor'},
-    '1st_3_limited_pack':      {total:1281,    crew:3, days:1, detail:'5 hrs with 3 Pros — pack & move (select items)',              breakdown:'$1,056.00 Labor, $225 Material'},
-    '1st_3_limited_nopack':    {total:1008.75, crew:3, days:1, detail:'4.75 hrs with 3 Pros — load & move (select items)',           breakdown:'$1,008.75 Labor'},
+    '1st_3_entire_pack':       {total:1749.50, crew:3, days:1, detail:'6.5 hrs with 3 Pros — pack & move',                           breakdown:'$1,524.50 Labor\n$225.00 Material'},
+    '1st_3_entire_nopack':     {total:1524.50, crew:3, days:1, detail:'6.5 hrs with 3 Pros — load & move',                           breakdown:'$1,524.50 Labor'},
+    '1st_3_limited_pack':      {total:1436,    crew:3, days:1, detail:'5 hrs with 3 Pros — pack & move (select items)',              breakdown:'$1,211 Labor\n$225.00 Material'},
+    '1st_3_limited_nopack':    {total:1158.75, crew:3, days:1, detail:'4.75 hrs with 3 Pros — load & move (select items)',           breakdown:'$1,158.75 Labor'},
     // ── 3BR 2nd+ floor — 3 PROS ──
-    '2nd+_3_entire_pack':      {total:1706.25, crew:3, days:1, detail:'7.25 hrs with 3 Pros — pack & move (2nd+ floor)',             breakdown:'$1,481.25 Labor, $225 Material'},
-    '2nd+_3_entire_nopack':    {total:1481.25, crew:3, days:1, detail:'7.25 hrs with 3 Pros — load & move (2nd+ floor)',             breakdown:'$1,481.25 Labor'},
-    '2nd+_3_limited_pack':     {total:1422.75, crew:3, days:1, detail:'5.75 hrs with 3 Pros — pack & move (2nd+ floor, select items)',breakdown:'$1,197.75 Labor, $225 Material'},
-    '2nd+_3_limited_nopack':   {total:1150.50, crew:3, days:1, detail:'5.5 hrs with 3 Pros — load & move (2nd+ floor, select items)', breakdown:'$1,150.50 Labor'},
+    '2nd+_3_entire_pack':      {total:1906.25, crew:3, days:1, detail:'7.25 hrs with 3 Pros — pack & move (2nd+ floor)',             breakdown:'$1,681.25 Labor\n$225.00 Material'},
+    '2nd+_3_entire_nopack':    {total:1681.25, crew:3, days:1, detail:'7.25 hrs with 3 Pros — load & move (2nd+ floor)',             breakdown:'$1,681.25 Labor'},
+    '2nd+_3_limited_pack':     {total:1592.75, crew:3, days:1, detail:'5.75 hrs with 3 Pros — pack & move (2nd+ floor, select items)',breakdown:'$1,367.75 Labor\n$225.00 Material'},
+    '2nd+_3_limited_nopack':   {total:1315.50, crew:3, days:1, detail:'5.5 hrs with 3 Pros — load & move (2nd+ floor, select items)', breakdown:'$1,315.50 Labor'},
   };
   var k = floor + '_' + beds + '_' + scope + '_' + pk;
   return map[k] || null;
 }
 
-function getStorageQuote(units, size) {
-  // Generic storage pricing
-  const base = {
-    '5x10':350, '10x10':550, '10x15':700, '10x20':900
-  };
-  const unitCount = parseInt(units)||1;
-  const total = (base[size]||500) * unitCount;
-  return {total, days:1, detail:`Moving ${units} ${size} storage unit${unitCount>1?'s':''} with our crew`, breakdown:`Based on ${units} unit(s) × ${size}`};
+function buildStorageHTML() {
+  var unitOpts = ['1','2'].map(function(n) {
+    return '<div class="opt'+(S.storageUnits===n?' sel':'')+'" data-sunits="'+n+'">'+
+      '<span class="opt-icon">'+(n==='1'?'1️⃣':'2️⃣')+'</span>'+
+      '<div class="opt-label">'+n+' Unit'+(n==='2'?'s':'')+'</div>'+
+    '</div>';
+  }).join('');
+
+  var sizeMap = {'5x10':'1.4rem','10x10':'1.8rem','10x15':'2.3rem','10x20':'2.8rem'};
+  var sizeOpts = Object.keys(sizeMap).map(function(s) {
+    return '<div class="opt'+(S.storageUnitSize===s?' sel':'')+'" data-ssize="'+s+'">'+
+      '<span style="font-size:'+sizeMap[s]+';display:block;margin-bottom:6px">🏪</span>'+
+      '<div class="opt-label">'+s+'</div>'+
+    '</div>';
+  }).join('');
+
+  var levelOpts =
+    '<div class="opt'+(S.storageLevels==='single'?' sel':'')+'" data-slevels="single">'+
+      '<span class="opt-icon">🏠</span><div class="opt-label">Single Level</div>'+
+    '</div>'+
+    '<div class="opt'+(S.storageLevels==='multi'?' sel':'')+'" data-slevels="multi">'+
+      '<span class="opt-icon">🏘️</span><div class="opt-label">Multi-Level</div>'+
+    '</div>';
+
+  var asmOpts =
+    '<div class="opt'+(S.storageAssembly==='yes'?' sel':'')+'" data-sassembly="yes">'+
+      '<span class="opt-icon">🔧</span><div class="opt-label">Yes</div>'+
+    '</div>'+
+    '<div class="opt'+(S.storageAssembly==='no'?' sel':'')+'" data-sassembly="no">'+
+      '<span class="opt-icon">✅</span><div class="opt-label">No</div>'+
+    '</div>';
+
+  return (
+    '<div class="section-label">How many units?</div>'+
+    '<div class="card-grid g2" style="margin-bottom:20px" id="storageUnitsGrid">'+unitOpts+'</div>'+
+
+    '<div id="storageSizeSection" style="display:'+(S.storageUnits?'block':'none')+'">'+
+      '<div class="section-label">Unit Size</div>'+
+      '<div class="card-grid g4" style="margin-bottom:20px" id="storageSizeGrid">'+sizeOpts+'</div>'+
+    '</div>'+
+
+    '<div id="storageLevelsSection" style="display:'+(S.storageUnitSize?'block':'none')+'">'+
+      '<div class="section-label">Single or Multi-Level?</div>'+
+      '<div class="card-grid g2" style="margin-bottom:20px" id="storageLevelsGrid">'+levelOpts+'</div>'+
+    '</div>'+
+
+    '<div id="storageAssemblySection" style="display:'+(S.storageLevels?'block':'none')+'">'+
+      '<div class="section-label">Assembly / Disassembly needed?</div>'+
+      '<div class="card-grid g2" style="margin-bottom:20px" id="storageAssemblyGrid">'+asmOpts+'</div>'+
+    '</div>'
+  );
 }
 
+function rewireStorageClicks() {
+  document.querySelectorAll('#s2content .opt[data-sunits]').forEach(function(el) {
+    el.onclick = function() {
+      S.storageUnits = this.dataset.sunits;
+      S.storageService=''; S.storageUnitSize=''; S.storageLevels=''; S.storageAssembly='';
+      this.parentElement.querySelectorAll('.opt').forEach(function(c){c.classList.remove('sel');});
+      this.classList.add('sel');
+      ['storageSizeSection','storageLevelsSection','storageAssemblySection'].forEach(function(id){
+        var s=document.getElementById(id); if(s) s.style.display='none';
+      });
+      var ss = document.getElementById('storageSizeSection');
+      if(ss) { ss.style.display='block'; rewireStorageClicks(); scrollToNext(ss); }
+    };
+  });
+
+  document.querySelectorAll('#s2content .opt[data-ssize]').forEach(function(el) {
+    el.onclick = function() {
+      S.storageUnitSize = this.dataset.ssize;
+      S.storageLevels=''; S.storageAssembly='';
+      this.parentElement.querySelectorAll('.opt').forEach(function(c){c.classList.remove('sel');});
+      this.classList.add('sel');
+      document.getElementById('storageAssemblySection').style.display='none';
+      var ls = document.getElementById('storageLevelsSection');
+      if(ls) { ls.style.display='block'; rewireStorageClicks(); scrollToNext(ls); }
+    };
+  });
+  document.querySelectorAll('#s2content .opt[data-slevels]').forEach(function(el) {
+    el.onclick = function() {
+      S.storageLevels = this.dataset.slevels;
+      S.storageAssembly='';
+      this.parentElement.querySelectorAll('.opt').forEach(function(c){c.classList.remove('sel');});
+      this.classList.add('sel');
+      var as = document.getElementById('storageAssemblySection');
+      if(as) { as.style.display='block'; rewireStorageClicks(); scrollToNext(as); }
+    };
+  });
+  document.querySelectorAll('#s2content .opt[data-sassembly]').forEach(function(el) {
+    el.onclick = function() {
+      S.storageAssembly = this.dataset.sassembly;
+      this.parentElement.querySelectorAll('.opt').forEach(function(c){c.classList.remove('sel');});
+      this.classList.add('sel');
+      setTimeout(function() {
+        var btnRow = document.querySelector('#s2 .btn-row');
+        if(btnRow) {
+          var rect = btnRow.getBoundingClientRect();
+          var scrollY = window.scrollY || window.pageYOffset;
+          window.scrollTo({ top: Math.max(0, scrollY + rect.top - (window.innerHeight * 0.72)), behavior: 'smooth' });
+        }
+      }, 320);
+    };
+  });
+}
+
+
+function getStorageQuote(units, size) {
+  var firstHour = {2:285, 3:375, 4:450};
+  var hrRate    = {2:159, 3:209, 4:279};
+  function calcLabor(pros, hrs) {
+    if(hrs<=1) return firstHour[pros];
+    return Math.round((firstHour[pros] + Math.ceil((hrs-1)*4)*(hrRate[pros]/4))*100)/100;
+  }
+
+  var unitCount = parseInt(S.storageUnits) || 1;
+  var usize  = S.storageUnitSize || size || '10x10';
+  var level  = S.storageLevels  || 'single';
+  var asm    = S.storageAssembly === 'yes';
+
+  // 1 UNIT: load + unload hrs by [size][level]
+  // ML adds same increment as labor only (+0.25 load, +0.25 unload per step)
+  var hours1 = {
+    '5x10':  {single: 0.75+0.75,  multi: 1.0+1.0},
+    '10x10': {single: 1.25+1.0,   multi: 1.5+1.25},
+    '10x15': {single: 2.0+1.25,   multi: 2.25+1.5},
+    '10x20': {single: 2.25+1.5,   multi: 2.5+1.75}
+  };
+  var pros1 = {'5x10':2,'10x10':2,'10x15':2,'10x20':3};
+
+  // 2 UNITS: Daniel's exact specs (SL). ML = SL + 0.5hr (same pattern as 1 unit)
+  var hours2 = {
+    '5x10':  {single: 1.25+1.25,  multi: 1.5+1.5},
+    '10x10': {single: 2.25+1.5,   multi: 2.5+1.75},
+    '10x15': {single: 2.75+1.75,  multi: 3.0+2.0},
+    '10x20': {single: 4.0+2.0,    multi: 4.25+2.25}
+  };
+  var pros2 = {'5x10':2,'10x10':3,'10x15':3,'10x20':4};
+
+  // 2-truck required for 2 units of 10x15 or 10x20
+  var needsTwoTrucks = (unitCount === 2 && (usize === '10x15' || usize === '10x20'));
+
+  var hoursTable = unitCount === 2 ? hours2 : hours1;
+  var prosTable  = unitCount === 2 ? pros2  : pros1;
+
+  var pros = prosTable[usize] || 2;
+  var hrs  = (hoursTable[usize] || hoursTable['10x10'])[level];
+  if(asm) hrs += 0.25; // +15 min for assembly
+
+  var total = calcLabor(pros, hrs);
+  var truck2Fee = needsTwoTrucks ? 185 : 0;
+  total = Math.round((total + truck2Fee) * 100) / 100;
+
+  var levelLabel = level==='single' ? 'Single-Level' : 'Multi-Level';
+  var asmNote    = asm ? ' + assembly' : '';
+  var truckNote  = needsTwoTrucks ? ' + 2nd truck' : '';
+  var fh = firstHour[pros], hr = hrRate[pros];
+  var extraInc = hrs > 1 ? Math.ceil((hrs-1)*4) : 0;
+  var bdBreak = '$'+calcLabor(pros,hrs).toFixed(2)+' Labor (load + unload)\n'+
+    '1st hr $'+fh + (hrs>1 ? ' + '+extraInc+' × $'+(hr/4).toFixed(2)+' (15-min @ $'+hr+'/hr)' : '') +
+    (needsTwoTrucks ? '\n$185.00 2nd Truck' : '');
+
+  // Store 2-truck flag for mileage doubling in buildQuote
+  S._storageTwoTrucks = needsTwoTrucks;
+
+  return {
+    total,
+    days: 1,
+    detail: unitCount+' × '+usize+' unit'+(unitCount>1?'s':'')+' — '+levelLabel+' — '+pros+' Pros — '+hrs+' hrs'+asmNote+truckNote+' (drive time added separately)',
+    breakdown: bdBreak
+  };
+}
+
+
 function getLaborQuote(pros, hours) {
-  const firstHour = {2:250, 3:300, 4:350, 5:425, 6:525, 7:600, 8:685, 9:750, 10:825};
-  const hrRate    = {2:139, 3:189, 4:249, 5:300, 6:365, 7:430, 8:495, 9:550, 10:625};
+  const firstHour = {2:285, 3:375, 4:450, 5:525, 6:600, 7:625, 8:725, 9:825, 10:900, 11:985, 12:1050, 13:1125, 14:1295, 15:1395};
+  const hrRate    = {2:159, 3:209, 4:279, 5:359, 6:419, 7:450, 8:525, 9:595, 10:675, 11:750, 12:800, 13:885, 14:950, 15:1050};
   var p = parseInt(pros), h = parseFloat(hours);
   var fh = firstHour[p] || 300;
   var hr = hrRate[p] || 189;
@@ -1805,6 +2018,31 @@ function buildQuote() {
   var lodging = calcLodgingFee(S.zipFrom, S.zipTo);
   var holding = calcHoldingFee(S.overnight);
 
+  // Drive time labor: pickup → dropoff leg billed at crew rate (30 mph avg, rounded to 15-min increments)
+  var driveTimeFee  = 0;
+  var driveTimeLine = '';
+  var leg2Miles = mileage.leg2 || 0;
+  var skipDriveTime = (S.serviceType === 'labor') || (S.overnight === 'yes' && S.serviceType === 'house');
+  if(leg2Miles > 0 && !skipDriveTime && q) {
+    // One-way drive time only (pickup → dropoff). Round trip mileage fee covers return.
+    // Uses cached Google Maps drive time if available, otherwise estimates at 25 mph city average.
+    var cachedDriveMins = S._driveTimeMins || 0;
+    var driveTimeHrs;
+    if(cachedDriveMins > 0) {
+      driveTimeHrs = Math.ceil((cachedDriveMins / 60) * 4) / 4; // round up to nearest 0.25 hr
+    } else {
+      driveTimeHrs = Math.ceil((leg2Miles / 25) * 4) / 4; // 25 mph city average
+    }
+    var crewRate = 34.75; // 2-pro rate ($139/hr)
+    if(q.detail && q.detail.indexOf('6 Pros') > -1)      crewRate = 91.25;
+    else if(q.detail && q.detail.indexOf('5 Pros') > -1) crewRate = 75.00;
+    else if(q.detail && q.detail.indexOf('4 Pros') > -1) crewRate = 62.25;
+    else if(q.detail && q.detail.indexOf('3 Pros') > -1) crewRate = 47.25;
+    driveTimeFee = Math.round(driveTimeHrs * 4 * crewRate * 100) / 100;
+    var driveSource = cachedDriveMins > 0 ? 'Google Maps' : 'est.';
+    driveTimeLine = '<li>🚗 Drive Time (one-way) &mdash; ' + leg2Miles + ' mi pickup→dropoff (~' + driveTimeHrs + ' hrs ' + driveSource + ' @ $' + (crewRate*4).toFixed(2) + '/hr) = <strong>$' + driveTimeFee.toFixed(2) + '</strong></li>';
+  }
+
   // Second stop extra mileage: midpoint miles added on top of existing billable miles
   var msExtraMileageFee = 0;
   var msExtraMileageNote = '';
@@ -1819,7 +2057,15 @@ function buildQuote() {
   var holdingAlreadyInTotal = (S.serviceType === 'house' && S.overnight === 'yes');
   var holdingAddition = holdingAlreadyInTotal ? 0 : holding.fee;
 
-  var grandTotal = Math.round((q.total + mileage.fee + lodging.fee + holdingAddition + (S.msExtraFee||0) + msExtraMileageFee) * 100) / 100;
+  // Double mileage for 2-truck storage jobs
+  var effectiveMileageFee = mileage.fee;
+  var mileageDoubled = false;
+  if(S.serviceType === 'storage' && S._storageTwoTrucks) {
+    effectiveMileageFee = Math.round(mileage.fee * 2 * 100) / 100;
+    mileageDoubled = true;
+  }
+
+  var grandTotal = Math.round((q.total + effectiveMileageFee + lodging.fee + holdingAddition + driveTimeFee + (S.msExtraFee||0) + msExtraMileageFee) * 100) / 100;
 
   // Apply onsite discount (10%)
   var onsiteDiscountAmt = 0;
@@ -1844,8 +2090,8 @@ function buildQuote() {
 
   var breakdownLines = q.breakdown.split('\n').map(function(l){ return '<li>' + l + '</li>'; }).join('');
 
-  var mileageLine = mileage.fee > 0
-    ? '<li>&#x1F697; Mileage &mdash; ' + mileage.note + ' = <strong>$' + mileage.fee.toFixed(2) + '</strong></li>'
+  var mileageLine = effectiveMileageFee > 0
+    ? '<li>&#x1F697; Mileage &mdash; ' + mileage.note + (mileageDoubled ? ' <em>(×2 for 2 trucks)</em>' : '') + ' = <strong>$' + effectiveMileageFee.toFixed(2) + '</strong></li>'
     : '<li>&#x1F697; Mileage &mdash; ' + mileage.note + '</li>';
 
   var lodgingLine = lodging.nights > 0
@@ -1858,7 +2104,9 @@ function buildQuote() {
     : '';
 
   var specials = S.specialItems && S.specialItems.length > 0
-    ? '<div style="background:rgba(204,18,18,0.15);border-radius:8px;padding:10px 12px;margin-top:12px;font-size:0.8rem;color:rgba(255,255,255,0.9)">Special items noted (' + S.specialItems.join(', ') + ') &mdash; our team will confirm any additional handling fees.</div>'
+    ? '<div style="background:rgba(204,18,18,0.15);border-radius:8px;padding:10px 12px;margin-top:12px;font-size:0.8rem;color:rgba(255,255,255,0.9)">Special items noted (' + S.specialItems.join(', ') + ') &mdash; our team will confirm any additional handling fees, if applicable.' +
+      (S.specialItems.some(function(i){return i.indexOf('safe')>-1;}) ? '<div style="margin-top:8px;color:var(--red);font-weight:700">⚠️ Safes over 400 lbs require a special Safe Dolly for proper and safe handling. Is your safe over 400 pounds?</div>' : '') +
+      '</div>'
     : '';
 
   var msItemMins = S.msItems==='1to5' ? 22 : S.msItems==='5to10' ? 36 : S.msItems==='10plus' ? 50 : 0;
@@ -1889,7 +2137,7 @@ function buildQuote() {
     // ── PRICE CARD ──
     '<div class="quote-card">' +
       '<div class="quote-label">Estimated Total</div>' +
-      '<div class="quote-price">$' + grandTotal.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) + '</div>' +
+      '<div class="quote-price" id="animatedPrice">$' + grandTotal.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) + '</div>' +
       '<div class="quote-move-type">' + q.days + '-Day Move &bull; ' + serviceLabel() + '</div>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:16px;text-align:center">' +
         '<div style="background:rgba(255,255,255,0.07);border-radius:10px;padding:10px 4px">' +
@@ -1918,17 +2166,17 @@ function buildQuote() {
         '<div onclick="toggleTab(\'secOverview\')" id="tab-secOverview" style="padding:14px 6px;text-align:center;cursor:pointer;border-right:2px solid rgba(255,255,255,0.15);transition:background 0.2s">' +
           '<div style="font-size:1.2rem">🗺️</div>' +
           '<div style="font-size:0.65rem;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,0.75);margin-top:4px">Overview</div>' +
-          '<div id="secOverviewArrow" style="font-size:0.75rem;color:var(--red);margin-top:3px;transition:transform 0.25s;display:inline-block">▾</div>' +
+          '<div id="secOverviewArrow" style="font-size:1.4rem;color:var(--red);margin-top:2px;transition:transform 0.3s;display:inline-block;line-height:1">⌄</div>' +
         '</div>' +
         '<div onclick="toggleTab(\'secBreakdown\')" id="tab-secBreakdown" style="padding:14px 6px;text-align:center;cursor:pointer;border-right:2px solid rgba(255,255,255,0.15);transition:background 0.2s">' +
           '<div style="font-size:1.2rem">💵</div>' +
           '<div style="font-size:0.65rem;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,0.75);margin-top:4px">Breakdown</div>' +
-          '<div id="secBreakdownArrow" style="font-size:0.75rem;color:var(--red);margin-top:3px;transition:transform 0.25s;display:inline-block">▾</div>' +
+          '<div id="secBreakdownArrow" style="font-size:1.4rem;color:var(--red);margin-top:2px;transition:transform 0.3s;display:inline-block;line-height:1">⌄</div>' +
         '</div>' +
         '<div onclick="toggleTab(\'secAbout\')" id="tab-secAbout" style="padding:14px 6px;text-align:center;cursor:pointer;transition:background 0.2s">' +
           '<div style="font-size:1.2rem">💡</div>' +
           '<div style="font-size:0.65rem;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,0.75);margin-top:4px">About</div>' +
-          '<div id="secAboutArrow" style="font-size:0.75rem;color:var(--red);margin-top:3px;transition:transform 0.25s;display:inline-block">▾</div>' +
+          '<div id="secAboutArrow" style="font-size:1.4rem;color:var(--red);margin-top:2px;transition:transform 0.3s;display:inline-block;line-height:1">⌄</div>' +
         '</div>' +
       '</div>' +
 
@@ -1938,7 +2186,7 @@ function buildQuote() {
       '</div>' +
       '<div id="secBreakdown" style="display:none;padding:16px 18px;background:#fff;border:2px solid var(--black);border-top:none">' +
         '<ul style="list-style:none;padding:0;margin:0;font-size:0.85rem;color:#333;display:flex;flex-direction:column;gap:8px">' +
-          breakdownLines + mileageLine + lodgingLine + holdingLine + multiStopLine + msExtraMileageLine + onsiteDiscountLine + discountLine +
+          breakdownLines + mileageLine + driveTimeLine + lodgingLine + holdingLine + multiStopLine + msExtraMileageLine + onsiteDiscountLine + discountLine +
         '</ul>' +
         interstateNote +
       '</div>' +
@@ -1949,7 +2197,7 @@ function buildQuote() {
       // Special Items panel (if any)
       (specials
         ? '<div style="padding:12px 18px;background:#fffbe6;border:2px solid #f5c518;border-top:none;font-size:0.83rem;color:#555">⭐ ' +
-            'Special items noted (' + (S.specialItems||[]).join(', ') + ') — our team will confirm any additional handling fees.' +
+            'Special items noted (' + (S.specialItems||[]).join(', ') + ') — our team will confirm any additional handling fees, if applicable.' +
           '</div>'
         : '') +
 
@@ -1975,7 +2223,12 @@ function serviceLabel() {
   const t = S.serviceType;
   if(t==='house') return `${S.levels==='single'?'Single':'Multi'}-Level ${S.homeSize} Home`;
   if(t==='apartment') return `${S.aptBedrooms}BR Apartment (${S.aptFloor} Floor)`;
-  if(t==='storage') return `${S.storageUnits} Storage Unit(s) — ${S.storageSize}`;
+  if(t==='storage') {
+    var szL = S.storageUnitSize || S.storageSize || '';
+    var lvL = S.storageLevels==='multi'?'Multi-Level':'Single-Level';
+    var uCt = S.storageUnits || '1';
+    return uCt+' × '+szL+' Storage Unit — '+lvL;
+  }
   if(t==='labor') {
     if(S.laborMode==='guided') {
       var svcL = S.laborService==='loading'?'Loading':'Unloading';
@@ -2055,7 +2308,23 @@ function submitEstimateEmail() {
   var emailMsExtraMileageFee = (S.msDistanceMiles > 0) ? Math.round(S.msDistanceMiles * MILEAGE_RATE * 100) / 100 : 0;
   var emailHoldingAlreadyInTotal = (S.serviceType === 'house' && S.overnight === 'yes');
   var baseTotal   = q ? q.total : 0;
-  var grandTotal  = Math.round((baseTotal + mileage.fee + lodging.fee + (emailHoldingAlreadyInTotal ? 0 : holding.fee) + (S.msExtraFee||0) + emailMsExtraMileageFee) * 100) / 100;
+  // Drive time for email: same calc as buildQuote
+  var emailDriveTimeFee = 0;
+  var emailLeg2 = mileage.leg2 || 0;
+  var emailSkipDrive = (S.serviceType === 'labor') || (S.overnight === 'yes' && S.serviceType === 'house');
+  if(emailLeg2 > 0 && !emailSkipDrive && q) {
+    var eCachedMins = S._driveTimeMins || 0;
+    var eDriveHrs = eCachedMins > 0
+      ? Math.ceil((eCachedMins / 60) * 4) / 4
+      : Math.ceil((emailLeg2 / 25) * 4) / 4;
+    var eCrew = 34.75;
+    if(q.detail && q.detail.indexOf('6 Pros') > -1)      eCrew = 91.25;
+    else if(q.detail && q.detail.indexOf('5 Pros') > -1) eCrew = 75.00;
+    else if(q.detail && q.detail.indexOf('4 Pros') > -1) eCrew = 62.25;
+    else if(q.detail && q.detail.indexOf('3 Pros') > -1) eCrew = 47.25;
+    emailDriveTimeFee = Math.round(eDriveHrs * 4 * eCrew * 100) / 100;
+  }
+  var grandTotal  = Math.round((baseTotal + mileage.fee + lodging.fee + (emailHoldingAlreadyInTotal ? 0 : holding.fee) + emailDriveTimeFee + (S.msExtraFee||0) + emailMsExtraMileageFee) * 100) / 100;
   if(S.discountPct > 0) {
     var emailDiscountAmt = Math.round(grandTotal * S.discountPct * 100) / 100;
     grandTotal = Math.round((grandTotal - emailDiscountAmt) * 100) / 100;
@@ -2338,9 +2607,13 @@ function submitForm() {
 document.querySelectorAll('#specialItemsGrid input[type=checkbox]').forEach(cb => {
   cb.addEventListener('change', function() {
     if(this.value === 'piano' && this.checked) {
-      // Show piano modal — don't add to state yet, wait for user confirmation
       document.getElementById('pianoModal').classList.add('open');
-      // Prevent default visual selection until confirmed
+      this.checked = false;
+      this.closest('.special-item').classList.remove('sel');
+      return;
+    }
+    if(this.value === 'safe' && this.checked) {
+      document.getElementById('safeModal').classList.add('open');
       this.checked = false;
       this.closest('.special-item').classList.remove('sel');
       return;
@@ -2355,36 +2628,86 @@ document.querySelectorAll('#specialItemsGrid input[type=checkbox]').forEach(cb =
   });
 });
 
+function closeSafeModal(isHeavy) {
+  var label = isHeavy ? 'safe (400+ lbs — Safe Dolly required)' : 'safe';
+  S.specialItems.push(label);
+  S._safeHeavy = isHeavy;
+  var cb = document.querySelector('#specialItemsGrid input[value="safe"]');
+  if(cb) { cb.checked = true; cb.closest('.special-item').classList.add('sel'); }
+
+  // Show confirmation screen inside modal
+  var confirmMsg = isHeavy
+    ? 'Got it! We\'ll bring a <strong>Safe Dolly</strong> for your 400+ lb safe. Our team will confirm handling details when we call.'
+    : 'Perfect! Your safe has been added to your quote. Our team will confirm any handling details when we call.';
+  document.getElementById('safeModalContent').style.display = 'none';
+  var conf = document.getElementById('safeModalConfirm');
+  conf.innerHTML = '<span style="font-size:3.5rem;display:block;margin-bottom:12px">👍</span>' +
+    '<div style="font-family:\'Bebas Neue\',cursive;font-size:1.4rem;letter-spacing:1px;color:var(--black);margin-bottom:10px">You\'re All Set!</div>' +
+    '<div style="font-size:0.88rem;color:var(--gray);line-height:1.6;margin-bottom:20px">' + confirmMsg + '</div>' +
+    '<button class="btn btn-primary" style="width:100%" onclick="document.getElementById(\'safeModal\').classList.remove(\'open\');document.getElementById(\'safeModalContent\').style.display=\'\';document.getElementById(\'safeModalConfirm\').innerHTML=\'\'">Close</button>';
+  conf.style.display = 'block';
+}
+
 function closePianoModal(confirm) {
-  document.getElementById('pianoModal').classList.remove('open');
   var pianoCb = document.querySelector('#specialItemsGrid input[value="piano"]');
   if(confirm) {
-    // User acknowledged — add piano and mark as selected
     pianoCb.checked = true;
     pianoCb.closest('.special-item').classList.add('sel');
     if(!S.specialItems.includes('piano')) S.specialItems.push('piano');
   } else {
-    // User removed — ensure unchecked and not in state
     pianoCb.checked = false;
     pianoCb.closest('.special-item').classList.remove('sel');
     S.specialItems = S.specialItems.filter(i=>i!=='piano');
   }
+
+  // Show confirmation screen inside modal
+  var confirmMsg = confirm
+    ? 'Your piano has been added to the quote. Our team will call to confirm details and ensure it\'s handled with care.'
+    : 'No problem — piano removed from your quote.';
+  document.getElementById('pianoModalContent').style.display = 'none';
+  var conf = document.getElementById('pianoModalConfirm');
+  conf.innerHTML = '<span style="font-size:3.5rem;display:block;margin-bottom:12px">👍</span>' +
+    '<div style="font-family:\'Bebas Neue\',cursive;font-size:1.4rem;letter-spacing:1px;color:var(--black);margin-bottom:10px">' + (confirm ? 'You\'re All Set!' : 'Got It!') + '</div>' +
+    '<div style="font-size:0.88rem;color:var(--gray);line-height:1.6;margin-bottom:20px">' + confirmMsg + '</div>' +
+    '<button class="btn btn-primary" style="width:100%" onclick="document.getElementById(\'pianoModal\').classList.remove(\'open\');document.getElementById(\'pianoModalContent\').style.display=\'\';document.getElementById(\'pianoModalConfirm\').innerHTML=\'\'">Close</button>';
+  conf.style.display = 'block';
 }
 </script>
 <!-- PIANO MODAL -->
 <div class="modal-overlay" id="pianoModal">
   <div class="modal-box">
-    <span class="modal-icon">🎹</span>
-    <div class="modal-title">Piano Moving</div>
-    <div class="modal-body">
-      <strong>We move upright pianos</strong> — no problem at all!<br><br>
-      If you have a <strong>baby grand or grand piano</strong>, we still have solutions for you, but it will need to be discussed in more detail prior to your move so we can ensure it's handled properly.<br><br>
-      Please mention this in your booking notes or give us a call and we'll walk you through the options.
+    <div id="pianoModalContent">
+      <span class="modal-icon">🎹</span>
+      <div class="modal-title">Piano Moving</div>
+      <div class="modal-body">
+        <strong>We move upright pianos</strong> — no problem at all!<br><br>
+        If you have a <strong>baby grand or grand piano</strong>, we still have solutions for you, but it will need to be discussed in more detail prior to your move so we can ensure it's handled properly.<br><br>
+        Please mention this in your booking notes or give us a call and we'll walk you through the options.
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closePianoModal(false)">Remove Piano</button>
+        <button class="btn btn-primary" onclick="closePianoModal(true)">Got It — Keep Selected</button>
+      </div>
     </div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closePianoModal(false)">Remove Piano</button>
-      <button class="btn btn-primary" onclick="closePianoModal(true)">Got It — Keep Selected</button>
+    <div id="pianoModalConfirm" style="display:none;text-align:center;padding:8px 0"></div>
+  </div>
+</div>
+
+<!-- ── Safe / Gun Safe Modal ── -->
+<div class="modal-overlay" id="safeModal">
+  <div class="modal-box">
+    <div id="safeModalContent">
+      <span class="modal-icon">🔒</span>
+      <div class="modal-title">Safe / Gun Safe</div>
+      <div class="modal-body">
+        <span style="color:var(--red);font-weight:700">Safes over 400 lbs require a special Safe Dolly for proper and safe handling. Is your safe over 400 pounds?</span>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeSafeModal(false)">No — Under 400 lbs</button>
+        <button class="btn btn-primary" onclick="closeSafeModal(true)">Yes — Over 400 lbs</button>
+      </div>
     </div>
+    <div id="safeModalConfirm" style="display:none;text-align:center;padding:8px 0"></div>
   </div>
 </div>
 
@@ -2581,7 +2904,29 @@ document.getElementById('commercialLeadModal').addEventListener('click', functio
   if (e.target === this) closeCommercialLeadForm();
 });
 
-// ── MULTIPLE STOPS HANDLERS ──
+// ── GOOGLE MAPS DRIVE TIME ──
+// Drop your Google Maps API key here to enable real drive time estimates.
+// Get a key at: https://console.cloud.google.com → Enable "Distance Matrix API"
+var GOOGLE_MAPS_API_KEY = ''; // e.g. 'AIzaSy...'
+
+function fetchDriveTime(zipFrom, zipTo) {
+  if(!GOOGLE_MAPS_API_KEY || !zipFrom || !zipTo || zipFrom.length < 5 || zipTo.length < 5) return;
+  var url = 'https://maps.googleapis.com/maps/api/distancematrix/json' +
+    '?origins=' + encodeURIComponent(zipFrom + ' USA') +
+    '&destinations=' + encodeURIComponent(zipTo + ' USA') +
+    '&mode=driving&key=' + GOOGLE_MAPS_API_KEY;
+  fetch(url)
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+      try {
+        var secs = data.rows[0].elements[0].duration.value;
+        S._driveTimeMins = Math.round(secs / 60);
+      } catch(e) { S._driveTimeMins = 0; }
+    })
+    .catch(function(){ S._driveTimeMins = 0; });
+}
+
+
 function pickAptBedrooms(val, el) {
   pick('aptBedrooms', val, el);
   var scopeSection = document.getElementById('aptScopeSection');
@@ -2960,6 +3305,30 @@ function claimOnsiteDiscount() {
 
 var DISCOUNT_CODES = { 'BNI': 0.15 };
 
+function animatePrice(fromAmount, toAmount, durationMs) {
+  var priceEl = document.getElementById('animatedPrice');
+  if(!priceEl) return;
+  var startTime = null;
+  var start = fromAmount;
+  var end   = toAmount;
+
+  function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
+
+  function step(timestamp) {
+    if(!startTime) startTime = timestamp;
+    var elapsed = timestamp - startTime;
+    var progress = Math.min(elapsed / durationMs, 1);
+    var current = start + (end - start) * easeOut(progress);
+    priceEl.textContent = '$' + current.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+    if(progress < 1) {
+      requestAnimationFrame(step);
+    } else {
+      priceEl.textContent = '$' + end.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+    }
+  }
+  requestAnimationFrame(step);
+}
+
 function applyDiscount() {
   var input = document.getElementById('discountInput');
   var msg   = document.getElementById('discountMsg');
@@ -2973,14 +3342,41 @@ function applyDiscount() {
   }
 
   if(DISCOUNT_CODES[code] !== undefined) {
+    var oldTotal = S._grandTotal || 0;
     S.discountCode    = code;
     S.discountPct     = DISCOUNT_CODES[code];
     S.discountApplied = true;
-    msg.style.display = 'block';
-    msg.style.color   = '#1f8a3c';
-    msg.textContent   = '✅ Code "' + code + '" applied — ' + (S.discountPct*100).toFixed(0) + '% off!';
     input.disabled    = true;
-    buildQuote(); // re-render with discount
+
+    // Rebuild quote to get new total + re-render DOM
+    buildQuote();
+
+    var newTotal = S._grandTotal || 0;
+
+    // Show BNI-specific or generic message
+    var friendlyMsg = code === 'BNI'
+      ? '🤝 We love our BNI Family! ' + (S.discountPct*100).toFixed(0) + '% off applied!'
+      : '✅ Code "' + code + '" applied — ' + (S.discountPct*100).toFixed(0) + '% off!';
+
+    msg.style.display    = 'block';
+    msg.style.color      = '#1f8a3c';
+    msg.style.fontWeight = '700';
+    msg.style.fontSize   = '0.9rem';
+    msg.textContent = friendlyMsg;
+
+    // Animate: set price back to old total first, then roll down to new total
+    if(oldTotal > 0 && newTotal < oldTotal) {
+      var priceEl = document.getElementById('animatedPrice');
+      if(priceEl) {
+        // Snap to old price immediately, then animate down
+        priceEl.textContent = '$' + oldTotal.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+        setTimeout(function() { animatePrice(oldTotal, newTotal, 1800); }, 80);
+      }
+    }
+
+    // Fire confetti
+    launchConfetti();
+
   } else {
     S.discountCode = ''; S.discountPct = 0; S.discountApplied = false;
     msg.style.display = 'block';
@@ -3079,8 +3475,8 @@ function pickLaborAssembly(val, el) {
 }
 
 function getGuidedLaborQuote() {
-  var firstHour = {2:250, 3:300};
-  var hrRate    = {2:139, 3:189};
+  var firstHour = {2:285, 3:375};
+  var hrRate    = {2:159, 3:209};
   function calcLabor(pros, hrs) {
     var fh=firstHour[pros], hr=hrRate[pros];
     if(hrs<=1) return fh;
